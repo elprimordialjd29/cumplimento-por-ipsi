@@ -3,8 +3,6 @@
 // el navegador. El estado persiste en localStorage y se puede exportar/
 // importar como el Excel maestro para moverlo entre computadores.
 
-const EMPRESA_ESPERADA = "DUSAKAWI IPSI";
-
 const PERIODO_MESES = {
   "OTRO SI": "Ene-Feb (adicion)",
   "1-TRIM": "Ene-Feb-Mar",
@@ -240,11 +238,14 @@ function validar(acta) {
     `contrato='${contrato}' acta_no='${actaNo}'`
   );
 
-  const empresa = (acta.empresa || "").trim().toUpperCase();
+  // El prestador que presta el servicio puede variar por municipio (DUSAKAWI
+  // IPSI, EZEQ SALUD IPSI, PALAIMA, etc.) — no se exige un nombre fijo, solo
+  // que el acta traiga diligenciado quién es.
+  const empresa = (acta.empresa || "").trim();
   add(
-    "Empresa esperada",
-    empresa.startsWith(EMPRESA_ESPERADA),
-    `empresa='${acta.empresa || ""}' (esperado inicia con '${EMPRESA_ESPERADA}')`
+    "Empresa (prestador) diligenciada",
+    empresa.length > 0,
+    empresa ? `Prestador: ${empresa}` : "El acta no trae el campo Empresa diligenciado"
   );
 
   const tol = 1.0;
@@ -840,7 +841,7 @@ function crearTarjetaPDF(file) {
         <div><label>Periodo${periodoDetectado ? ' <span class="pill ok">auto</span>' : ""}</label><select name="periodo" class="periodo-select" required></select></div>
         <div><label>Meses evaluados</label><input type="text" name="meses" placeholder="Ej. ENE,FEB"></div>
         <div><label>Año</label><input type="text" name="anio" value="${periodoDetectado ? (extraerAnio(ruta) || new Date().getFullYear()) : new Date().getFullYear()}"></div>
-        <div><label>Empresa</label><input type="text" name="empresa" value="DUSAKAWI IPSI"></div>
+        <div><label>Empresa (prestador)</label><input type="text" name="empresa" placeholder="Ej. DUSAKAWI IPSI, EZEQ SALUD IPSI..."></div>
         <div><label>NIT</label><input type="text" name="nit"></div>
         <div><label>Régimen</label><input type="text" name="regimen" value="SUBSIDIADO"></div>
       </div>
