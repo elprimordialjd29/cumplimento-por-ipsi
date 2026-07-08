@@ -67,6 +67,7 @@ header .sub { font-size: 0.82rem; opacity: 0.82; margin-top: 3px; }
 #download-btn:hover { background: #f2f5ff; transform: translateY(-1px); }
 .ghost { background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.35) !important; }
 .ghost:hover { background: rgba(255,255,255,0.22); transform: translateY(-1px); }
+.ghost-danger:hover { background: rgba(208,52,44,0.55); border-color: rgba(255,255,255,0.6) !important; }
 
 /* ---------- Nav ---------- */
 nav {
@@ -249,6 +250,11 @@ tbody tr:hover td { background: #f7f9ff; }
 
 .pdf-card { border: 1px solid var(--borde); border-radius: var(--radius); padding: 20px; margin-top: 20px; background: #fbfcfe; box-shadow: var(--shadow); }
 .pdf-card h3 { color: var(--brand-darker); }
+
+.resumen-grupo { margin-bottom: 28px; }
+.resumen-grupo h3 { color: var(--brand-darker); font-size: 1rem; margin-bottom: 10px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.resumen-general { margin-top: 34px; padding-top: 24px; border-top: 3px dashed var(--borde); }
+.resumen-general h3 { color: var(--amarillo); }
 
 .staging-item { border: 1px solid var(--borde); border-radius: var(--radius); padding: 18px; margin-top: 16px; background: #fbfcfe; }
 .staging-item h3 { color: var(--brand-darker); }

@@ -98,6 +98,36 @@ function cargarEstado() {
   }
 }
 
+// Borra todo: el consolidado guardado (localStorage), lo que esté en
+// revisión pendiente y las tarjetas de PDF cargadas. No queda nada alojado.
+function limpiarTodo() {
+  const total = STATE.detalle.length + STATE.validaciones.length;
+  const ok = confirm(
+    total > 0
+      ? `Esto borra permanentemente el consolidado guardado en este navegador (${STATE.detalle.length} filas de detalle) y todo lo que esté en revisión pendiente. ¿Continuar?`
+      : "Esto borra cualquier revisión pendiente y tarjetas de PDF cargadas. ¿Continuar?"
+  );
+  if (!ok) return;
+
+  STATE.detalle = [];
+  STATE.validaciones = [];
+  localStorage.removeItem(STORAGE_KEY);
+
+  STAGING_XLSX.clear();
+  renderStagingXlsx();
+  document.getElementById("confirmacion-xlsx").innerHTML = "";
+  document.getElementById("pdf-items").innerHTML = "";
+
+  const tabResumen = document.getElementById("tab-resumen");
+  const tabVal = document.getElementById("tab-validaciones");
+  if (tabResumen.classList.contains("active")) cargarResumen();
+  if (tabVal.classList.contains("active")) cargarValidaciones();
+  else document.getElementById("validaciones-contenido").innerHTML = "";
+  if (!tabResumen.classList.contains("active")) document.getElementById("resumen-contenido").innerHTML = "";
+
+  alert("Listo, no queda nada guardado.");
+}
+
 // --------------------------------------------------------------------------
 // Extraccion desde Excel (hojas tipo "erev")
 // --------------------------------------------------------------------------
@@ -350,6 +380,40 @@ function rebuildResumen() {
   return { rows, periodos: periodosOrdenados };
 }
 
+// Agregado "caso extremo": todos los prestadores juntos, promediando cada
+// actividad a través de todos los municipios/contratos que la reporten.
+function rebuildResumenGeneral() {
+  const porPrograma = {};
+  const periodosPresentes = new Set();
+  STATE.detalle.forEach((row) => {
+    periodosPresentes.add(row.Periodo);
+    if (!porPrograma[row.Programa]) porPrograma[row.Programa] = {};
+    if (!porPrograma[row.Programa][row.Periodo]) porPrograma[row.Programa][row.Periodo] = [];
+    if (row.Pct_Cumplimiento !== null && row.Pct_Cumplimiento !== undefined) {
+      porPrograma[row.Programa][row.Periodo].push(row.Pct_Cumplimiento);
+    }
+  });
+
+  const periodosOrdenados = PERIODO_ORDEN.filter((p) => periodosPresentes.has(p)).concat(
+    [...periodosPresentes].filter((p) => !PERIODO_ORDEN.includes(p)).sort()
+  );
+
+  const rows = Object.keys(porPrograma).sort().map((programa) => {
+    const row = { Programa: programa };
+    const valoresPromedio = [];
+    periodosOrdenados.forEach((per) => {
+      const arr = porPrograma[programa][per];
+      const avg = arr && arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+      row[per] = avg;
+      if (avg !== null) valoresPromedio.push(avg);
+    });
+    row.Promedio = valoresPromedio.length ? valoresPromedio.reduce((a, b) => a + b, 0) / valoresPromedio.length : null;
+    return row;
+  });
+
+  return { rows, periodos: periodosOrdenados };
+}
+
 // --------------------------------------------------------------------------
 // Render
 // --------------------------------------------------------------------------
@@ -394,6 +458,25 @@ function fmtPct(v) {
   return `<span class="pct-pill ${cls}">${pct.toFixed(1)}%</span>`;
 }
 
+// headerCols/filas: la primera columna es texto (Programa); el resto son %
+// (periodos + Promedio al final, que se resalta).
+function tablaResumenHtml(headerCols, filas) {
+  const thead = "<tr>" + headerCols.map((c) => `<th>${c}</th>`).join("") + "</tr>";
+  const body = filas
+    .map((celdas) => {
+      const tds = celdas
+        .map((v, i) => {
+          if (i === 0) return `<td>${v}</td>`;
+          const esPromedio = i === celdas.length - 1;
+          return `<td class="pct-cell"${esPromedio ? ' style="background:#f7f9ff;"' : ""}>${fmtPct(v)}</td>`;
+        })
+        .join("");
+      return `<tr>${tds}</tr>`;
+    })
+    .join("");
+  return `<div class="table-wrap"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`;
+}
+
 function cargarResumen() {
   const container = document.getElementById("resumen-contenido");
   const { rows, periodos } = rebuildResumen();
@@ -401,17 +484,37 @@ function cargarResumen() {
     container.innerHTML = '<div class="empty">Aún no hay actas consolidadas.</div>';
     return;
   }
-  const headerCols = ["Municipio", "Contrato", "Programa", ...periodos, "Promedio"];
-  const thead = "<tr>" + headerCols.map((c) => `<th>${c}</th>`).join("") + "</tr>";
-  const bodyRows = rows
-    .map((r) => {
-      let tds = `<td>${r.Municipio}</td><td>${r.Contrato}</td><td>${r.Programa}</td>`;
-      periodos.forEach((p) => { tds += `<td class="pct-cell">${fmtPct(r[p])}</td>`; });
-      tds += `<td class="pct-cell" style="background:#f7f9ff;">${fmtPct(r.Promedio)}</td>`;
-      return `<tr>${tds}</tr>`;
-    })
-    .join("");
-  container.innerHTML = `<table><thead>${thead}</thead><tbody>${bodyRows}</tbody></table>`;
+
+  // Agrupar por prestador (Municipio + Contrato) — el análisis principal es
+  // por prestador, no una tabla mezclada.
+  const grupos = new Map();
+  rows.forEach((r) => {
+    const key = r.Municipio + "||" + r.Contrato;
+    if (!grupos.has(key)) grupos.set(key, { municipio: r.Municipio, contrato: r.Contrato, filas: [] });
+    grupos.get(key).filas.push(r);
+  });
+
+  let html = "";
+  grupos.forEach((g) => {
+    const headerCols = ["Programa", ...periodos, "Promedio"];
+    const filas = g.filas.map((r) => [r.Programa, ...periodos.map((p) => r[p]), r.Promedio]);
+    html += `<div class="resumen-grupo">
+      <h3>🏥 ${g.municipio} <span class="hint" style="display:inline; margin:0;">— Contrato ${g.contrato}</span></h3>
+      ${tablaResumenHtml(headerCols, filas)}
+    </div>`;
+  });
+
+  // Caso extremo: consolidado general de todos los prestadores juntos.
+  const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
+  const headerColsGeneral = ["Programa", ...periodosGeneral, "Promedio"];
+  const filasGeneral = rowsGeneral.map((r) => [r.Programa, ...periodosGeneral.map((p) => r[p]), r.Promedio]);
+  html += `<div class="resumen-grupo resumen-general">
+    <h3>🌐 Consolidado general (todos los prestadores)</h3>
+    <p class="hint">Cada actividad promediada entre todos los municipios/contratos que la reportan.</p>
+    ${tablaResumenHtml(headerColsGeneral, filasGeneral)}
+  </div>`;
+
+  container.innerHTML = html;
 }
 
 function cargarValidaciones() {
@@ -532,6 +635,15 @@ function descargarMaestro() {
   const wsRes = hojaConEstilo(resAoa, { columnasPorcentaje: periodos.map((_, i) => 3 + i).concat([3 + periodos.length]) });
   XLSX.utils.book_append_sheet(wb, wsRes, "Resumen_Cumplimiento");
 
+  const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
+  const resGeneralHeaders = ["Programa / Actividad", ...periodosGeneral, "Promedio", "Estado"];
+  const resGeneralAoa = [
+    resGeneralHeaders,
+    ...rowsGeneral.map((r) => [r.Programa, ...periodosGeneral.map((p) => r[p] ?? null), r.Promedio ?? null, estadoTexto(r.Promedio)]),
+  ];
+  const wsResGeneral = hojaConEstilo(resGeneralAoa, { columnasPorcentaje: periodosGeneral.map((_, i) => 1 + i).concat([1 + periodosGeneral.length]) });
+  XLSX.utils.book_append_sheet(wb, wsResGeneral, "Resumen_General");
+
   XLSX.writeFile(wb, "CONSOLIDADO_ACTAS_PYM_DUSAKAWI.xlsx");
 }
 
@@ -554,10 +666,6 @@ function cargarMaestroDesdeArchivo(workbook) {
 // --------------------------------------------------------------------------
 // UI wiring
 // --------------------------------------------------------------------------
-function poblarSelectPeriodos(id) {
-  const sel = document.getElementById(id);
-  sel.innerHTML = Object.entries(PERIODO_MESES).map(([k, v]) => `<option value="${k}">${k} (${v})</option>`).join("");
-}
 
 function agregarFilaProgramaEn(tbody, valores) {
   const tr = document.createElement("tr");
@@ -723,22 +831,22 @@ let stagingIdCounter = 0;
 const STAGING_XLSX = new Map(); // id -> {id, file, ruta, periodo, periodoDetectado, acta, checks, error}
 
 async function procesarArchivosXlsx(files) {
-  const periodoDefecto = document.getElementById("periodo-xlsx").value;
   const soloXlsx = files.filter((f) => f.name.toLowerCase().endsWith(".xlsx"));
   document.getElementById("confirmacion-xlsx").innerHTML = "";
   for (const file of files) {
     if (!file.name.toLowerCase().endsWith(".xlsx")) continue;
     const ruta = rutaArchivo(file);
     const periodoDetectado = detectarPeriodoDesdeTexto(ruta);
-    const periodo = periodoDetectado || periodoDefecto;
-    const entry = { id: ++stagingIdCounter, file, ruta, periodo, periodoDetectado };
+    const entry = { id: ++stagingIdCounter, file, ruta, periodo: periodoDetectado, periodoDetectado };
     try {
       const buf = await file.arrayBuffer();
       const workbook = XLSX.read(buf, { type: "array", cellDates: true });
       const acta = parseActaXlsx(workbook, file.name);
       const checks = validar(acta);
-      const chkMeses = checkConsistenciaMeses(acta, periodo);
-      if (chkMeses) checks.push(chkMeses);
+      if (periodoDetectado) {
+        const chkMeses = checkConsistenciaMeses(acta, periodoDetectado);
+        if (chkMeses) checks.push(chkMeses);
+      }
       entry.acta = acta;
       entry.checks = checks;
     } catch (err) {
@@ -776,6 +884,7 @@ function renderStagingCard(entry) {
 
   const { acta, checks, periodo, periodoDetectado, ruta } = entry;
   const nErr = checks.filter((c) => c.resultado === "ERROR").length;
+  const sinPeriodo = !periodo;
   const filas = checks
     .map((c) => `
       <tr class="${c.resultado === "ERROR" ? "row-error" : ""}">
@@ -785,6 +894,10 @@ function renderStagingCard(entry) {
       </tr>`)
     .join("");
 
+  const estadoMsg = sinPeriodo
+    ? `⚠ No pude detectar el periodo de este archivo — selecciónalo para poder consolidarlo:`
+    : `${nErr === 0 ? "✔" : "⚠"} ${acta.municipio} — Contrato ${acta.contrato} — Acta ${acta.acta_no} — periodo detectado:`;
+
   div.innerHTML = `
     <div class="toolbar">
       <div>
@@ -793,19 +906,20 @@ function renderStagingCard(entry) {
       </div>
       <button type="button" class="danger">✕ Quitar</button>
     </div>
-    <div class="msg ${nErr === 0 ? "ok" : "error"}">
-      ${nErr === 0 ? "✔" : "⚠"} ${acta.municipio} — Contrato ${acta.contrato} — Acta ${acta.acta_no} — periodo
+    <div class="msg ${sinPeriodo ? "error" : nErr === 0 ? "ok" : "error"}">
+      ${estadoMsg}
       <select class="select-inline periodo-override"></select>
-      ${periodoDetectado ? '<span class="pill ok">auto</span>' : ""}
-      : ${checks.length} chequeos, ${nErr === 0 ? "todos OK" : `${nErr} con ERROR`}.
+      ${periodoDetectado ? '<span class="pill ok">detectado automático</span>' : ""}
+      ${!sinPeriodo ? `: ${checks.length} chequeos, ${nErr === 0 ? "todos OK" : `${nErr} con ERROR`}.` : ""}
     </div>
-    <div class="table-wrap" style="margin-top:10px;">
+    ${!sinPeriodo ? `<div class="table-wrap" style="margin-top:10px;">
       <table><thead><tr><th>Chequeo</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody>${filas}</tbody></table>
-    </div>`;
+    </div>` : ""}`;
 
   div.querySelector("button.danger").addEventListener("click", () => { STAGING_XLSX.delete(entry.id); renderStagingXlsx(); });
   const sel = div.querySelector(".periodo-override");
-  sel.innerHTML = Object.keys(PERIODO_MESES).map((k) => `<option value="${k}" ${k === periodo ? "selected" : ""}>${k}</option>`).join("");
+  const opcionesPeriodo = Object.keys(PERIODO_MESES).map((k) => `<option value="${k}" ${k === periodo ? "selected" : ""}>${k}</option>`).join("");
+  sel.innerHTML = (sinPeriodo ? '<option value="" selected disabled>-- elegir periodo --</option>' : "") + opcionesPeriodo;
   sel.addEventListener("change", () => {
     entry.periodo = sel.value;
     entry.periodoDetectado = false;
@@ -826,7 +940,7 @@ function renderStagingXlsx() {
   }
   card.style.display = "block";
   const entries = [...STAGING_XLSX.values()].reverse();
-  const nValidos = entries.filter((e) => e.acta).length;
+  const nValidos = entries.filter((e) => e.acta && e.periodo).length;
   document.getElementById("btn-confirmar-xlsx").textContent = `✅ Confirmar y consolidar todo (${nValidos})`;
   container.innerHTML = "";
   entries.forEach((entry) => container.appendChild(renderStagingCard(entry)));
@@ -834,17 +948,22 @@ function renderStagingXlsx() {
 
 function confirmarConsolidacionXlsx() {
   let count = 0;
-  STAGING_XLSX.forEach((entry) => {
-    if (entry.acta) {
+  const pendientesPeriodo = [];
+  STAGING_XLSX.forEach((entry, id) => {
+    if (entry.acta && entry.periodo) {
       consolidar(entry.acta, entry.periodo, entry.checks);
+      STAGING_XLSX.delete(id);
       count++;
+    } else if (entry.acta && !entry.periodo) {
+      pendientesPeriodo.push(entry.file.name);
     }
   });
-  const omitidos = STAGING_XLSX.size - count;
-  STAGING_XLSX.clear();
   renderStagingXlsx();
-  document.getElementById("confirmacion-xlsx").innerHTML =
-    `<div class="msg ok">✔ Se consolidaron ${count} archivo(s) al maestro.${omitidos ? ` ${omitidos} con error de lectura se omitieron.` : ""} Revísalo en "Resumen de cumplimiento".</div>`;
+  let msg = `<div class="msg ok">✔ Se consolidaron ${count} archivo(s) al maestro. Revísalo en "Resumen de cumplimiento".</div>`;
+  if (pendientesPeriodo.length) {
+    msg += `<div class="msg error">⚠ ${pendientesPeriodo.length} archivo(s) quedaron pendientes por falta de periodo: ${pendientesPeriodo.join(", ")}. Selecciónalo en su tarjeta arriba.</div>`;
+  }
+  document.getElementById("confirmacion-xlsx").innerHTML = msg;
 }
 
 function descartarTodoXlsx() {
@@ -855,7 +974,6 @@ function descartarTodoXlsx() {
 
 document.addEventListener("DOMContentLoaded", () => {
   cargarEstado();
-  poblarSelectPeriodos("periodo-xlsx");
 
   setupDropzone(document.getElementById("dropzone-xlsx"), document.getElementById("file-xlsx"), procesarArchivosXlsx);
   setupDropzone(document.getElementById("dropzone-pdfs"), document.getElementById("input-pdfs"));
@@ -875,6 +993,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("btn-cargar-maestro").addEventListener("click", () => document.getElementById("input-maestro").click());
+  document.getElementById("btn-limpiar-todo").addEventListener("click", limpiarTodo);
   document.getElementById("btn-confirmar-xlsx").addEventListener("click", confirmarConsolidacionXlsx);
   document.getElementById("btn-descartar-xlsx").addEventListener("click", descartarTodoXlsx);
 

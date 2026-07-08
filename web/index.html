@@ -24,6 +24,7 @@
     <button class="ghost" id="btn-cargar-maestro">⬆ <span>Cargar maestro</span></button>
     <input type="file" id="input-maestro" accept=".xlsx" hidden>
     <button id="download-btn">⬇ <span>Descargar Excel maestro</span></button>
+    <button class="ghost ghost-danger" id="btn-limpiar-todo">🗑 <span>Limpiar todo</span></button>
   </div>
 </header>
 
@@ -49,9 +50,7 @@
       </div>
       <button type="button" class="secondary" id="btn-folder-xlsx" style="margin-top:10px;">📁 O selecciona una carpeta completa (incluye subcarpetas)</button>
       <input type="file" id="folder-xlsx" webkitdirectory multiple hidden>
-
-      <label>Periodo por defecto <span class="label-note">(solo si no se detecta automáticamente)</span></label>
-      <select id="periodo-xlsx"></select>
+      <p class="hint">El periodo (OTRO SI, 1-TRIM, etc.) se detecta solo por la carpeta o el nombre del archivo — en la revisión de abajo te digo cuál detecté para cada uno. Si no logro detectarlo, te lo pido ahí mismo.</p>
     </div>
 
     <div class="card" id="card-revision-xlsx" style="display:none;">
@@ -92,7 +91,7 @@
         <h2 style="margin:0;">Resumen de % de cumplimiento por actividad</h2>
         <button class="secondary" id="btn-refrescar-resumen">↻ Actualizar</button>
       </div>
-      <div id="resumen-contenido" class="table-wrap"></div>
+      <div id="resumen-contenido"></div>
     </div>
   </section>
 
