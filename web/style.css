@@ -137,3 +137,8 @@ tr:nth-child(even) td { background: #fafbfd; }
 .pct-100 { color: var(--verde); font-weight: 600; }
 .pct-bad { color: var(--rojo); font-weight: 600; }
 .hint { font-size: 0.78rem; color: #777; margin-top: 4px; }
+.pdf-card { border: 1px solid var(--borde); border-radius: 10px; padding: 18px; margin-top: 18px; background: #fbfcfe; }
+.pdf-pages { margin: 10px 0 6px; }
+.pdf-embed { width: 100%; height: 520px; border: 1px solid var(--borde); border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.pdf-open-link { display: inline-block; margin-bottom: 8px; font-size: 0.82rem; color: var(--azul-osc); text-decoration: none; }
+.pdf-open-link:hover { text-decoration: underline; }

@@ -427,8 +427,7 @@ function poblarSelectPeriodos(id) {
   sel.innerHTML = Object.entries(PERIODO_MESES).map(([k, v]) => `<option value="${k}">${k} (${v})</option>`).join("");
 }
 
-function agregarFilaPrograma(valores) {
-  const tbody = document.querySelector("#tabla-programas tbody");
+function agregarFilaProgramaEn(tbody, valores) {
   const tr = document.createElement("tr");
   const v = valores || { programa: "", vr_exigido: "", vr_reconocido: "", descuento: "" };
   tr.innerHTML = `
@@ -441,11 +440,120 @@ function agregarFilaPrograma(valores) {
   tbody.appendChild(tr);
 }
 
+// --------------------------------------------------------------------------
+// Tarjetas dinámicas de PDF (previsualización + transcripción por archivo)
+// --------------------------------------------------------------------------
+function mostrarPDFEmbebido(file, container) {
+  try {
+    const url = URL.createObjectURL(file);
+    container.innerHTML = "";
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.className = "pdf-open-link";
+    link.textContent = "↗ Abrir PDF en pestaña nueva (si no se ve abajo)";
+    const embed = document.createElement("iframe");
+    embed.className = "pdf-embed";
+    embed.src = url;
+    embed.title = file.name;
+    container.appendChild(link);
+    container.appendChild(embed);
+  } catch (e) {
+    container.innerHTML = `<div class="msg error">No se pudo previsualizar el PDF (${e.message}). Puedes transcribir igual usando el formulario de abajo.</div>`;
+  }
+}
+
+function crearTarjetaPDF(file) {
+  const card = document.createElement("div");
+  card.className = "pdf-card";
+  card.innerHTML = `
+    <h3 style="margin-top:0;">${file.name}</h3>
+    <div class="pdf-pages"><div class="empty">Cargando previsualización...</div></div>
+    <form class="pdf-form">
+      <div class="grid2">
+        <div><label>Municipio</label><input type="text" name="municipio" required></div>
+        <div><label>Nº Contrato</label><input type="text" name="contrato" required placeholder="Ej. 20013-061-PMT"></div>
+        <div><label>Nº Acta</label><input type="text" name="acta_no" required placeholder="Ej. 20013-061-PMT-5"></div>
+        <div><label>Periodo</label><select name="periodo" class="periodo-select" required></select></div>
+        <div><label>Meses evaluados</label><input type="text" name="meses" placeholder="Ej. ENE,FEB"></div>
+        <div><label>Empresa</label><input type="text" name="empresa" value="DUSAKAWI IPSI"></div>
+        <div><label>NIT</label><input type="text" name="nit"></div>
+        <div><label>Régimen</label><input type="text" name="regimen" value="SUBSIDIADO"></div>
+      </div>
+
+      <h4 style="margin-top:18px;">Tabla de programas</h4>
+      <div class="table-wrap">
+        <table class="tabla-programas-pdf">
+          <thead><tr><th>Programa</th><th>Vr Exigido</th><th>Vr Reconocido</th><th>Descuento</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <button type="button" class="secondary btn-agregar-fila-pdf">+ Agregar actividad</button>
+
+      <h4 style="margin-top:18px;">Total ejecución (según el acta)</h4>
+      <div class="grid2">
+        <div><label>Total Vr Exigido</label><input type="number" step="0.01" name="total_exigido"></div>
+        <div><label>Total Vr Reconocido</label><input type="number" step="0.01" name="total_reconocido"></div>
+        <div><label>Total Descuento</label><input type="number" step="0.01" name="total_descuento"></div>
+      </div>
+
+      <button class="primary" type="submit">Validar y consolidar</button>
+      <div class="resultado-pdf"></div>
+    </form>
+  `;
+
+  const sel = card.querySelector(".periodo-select");
+  sel.innerHTML = Object.entries(PERIODO_MESES).map(([k, v]) => `<option value="${k}">${k} (${v})</option>`).join("");
+
+  const tbody = card.querySelector(".tabla-programas-pdf tbody");
+  PROGRAMAS_TIPICOS.forEach((nombre) => agregarFilaProgramaEn(tbody, { programa: nombre, vr_exigido: "", vr_reconocido: "", descuento: "" }));
+  card.querySelector(".btn-agregar-fila-pdf").addEventListener("click", () => agregarFilaProgramaEn(tbody));
+
+  card.querySelector("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const programas = [];
+    form.querySelectorAll(".tabla-programas-pdf tbody tr").forEach((tr) => {
+      const nombre = tr.querySelector(".p-nombre").value.trim();
+      if (!nombre) return;
+      programas.push({
+        programa: nombre,
+        vr_exigido: parseFloat(tr.querySelector(".p-exigido").value) || 0,
+        vr_reconocido: parseFloat(tr.querySelector(".p-reconocido").value) || 0,
+        descuento: parseFloat(tr.querySelector(".p-descuento").value) || 0,
+      });
+    });
+    const fd = new FormData(form);
+    const acta = {
+      municipio: fd.get("municipio"),
+      contrato: fd.get("contrato"),
+      acta_no: fd.get("acta_no"),
+      meses: fd.get("meses"),
+      empresa: fd.get("empresa"),
+      nit: fd.get("nit"),
+      regimen: fd.get("regimen"),
+      archivo_origen: file.name,
+      programas,
+      total_ejecucion: {
+        vr_exigido: parseFloat(fd.get("total_exigido")) || 0,
+        vr_reconocido: parseFloat(fd.get("total_reconocido")) || 0,
+        descuento: parseFloat(fd.get("total_descuento")) || 0,
+      },
+    };
+    const periodo = fd.get("periodo");
+    const checks = validar(acta);
+    consolidar(acta, periodo, checks);
+    renderResultado(form.querySelector(".resultado-pdf"), { acta, checks, periodo });
+  });
+
+  mostrarPDFEmbebido(file, card.querySelector(".pdf-pages"));
+  return card;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   cargarEstado();
   poblarSelectPeriodos("periodo-xlsx");
-  poblarSelectPeriodos("periodo-manual");
-  PROGRAMAS_TIPICOS.forEach((nombre) => agregarFilaPrograma({ programa: nombre, vr_exigido: "", vr_reconocido: "", descuento: "" }));
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -458,7 +566,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  document.getElementById("btn-agregar-fila").addEventListener("click", () => agregarFilaPrograma());
   document.getElementById("btn-refrescar-resumen").addEventListener("click", cargarResumen);
   document.getElementById("btn-refrescar-validaciones").addEventListener("click", cargarValidaciones);
   document.getElementById("download-btn").addEventListener("click", descargarMaestro);
@@ -466,60 +573,37 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("form-xlsx").addEventListener("submit", async (e) => {
     e.preventDefault();
     const container = document.getElementById("resultado-xlsx");
-    container.innerHTML = '<div class="empty">Procesando...</div>';
-    const fileInput = document.getElementById("file-xlsx");
+    container.innerHTML = "";
+    const files = Array.from(document.getElementById("file-xlsx").files);
     const periodo = document.getElementById("periodo-xlsx").value;
-    const file = fileInput.files[0];
-    if (!file) return;
-    try {
-      const buf = await file.arrayBuffer();
-      const workbook = XLSX.read(buf, { type: "array", cellDates: true });
-      const acta = parseActaXlsx(workbook, file.name);
-      const checks = validar(acta);
-      consolidar(acta, periodo, checks);
-      renderResultado(container, { acta, checks, periodo });
-    } catch (err) {
-      renderResultado(container, { error: err.message });
+    if (!files.length) return;
+    for (const file of files) {
+      const wrapper = document.createElement("div");
+      const titulo = document.createElement("h3");
+      titulo.style.marginBottom = "4px";
+      titulo.textContent = file.name;
+      const resultDiv = document.createElement("div");
+      wrapper.appendChild(titulo);
+      wrapper.appendChild(resultDiv);
+      container.appendChild(wrapper);
+      try {
+        const buf = await file.arrayBuffer();
+        const workbook = XLSX.read(buf, { type: "array", cellDates: true });
+        const acta = parseActaXlsx(workbook, file.name);
+        const checks = validar(acta);
+        consolidar(acta, periodo, checks);
+        renderResultado(resultDiv, { acta, checks, periodo });
+      } catch (err) {
+        renderResultado(resultDiv, { error: `${file.name}: ${err.message}` });
+      }
     }
   });
 
-  document.getElementById("form-manual").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const container = document.getElementById("resultado-manual");
-    const fd = new FormData(e.target);
-
-    const programas = [];
-    document.querySelectorAll("#tabla-programas tbody tr").forEach((tr) => {
-      const nombre = tr.querySelector(".p-nombre").value.trim();
-      if (!nombre) return;
-      programas.push({
-        programa: nombre,
-        vr_exigido: parseFloat(tr.querySelector(".p-exigido").value) || 0,
-        vr_reconocido: parseFloat(tr.querySelector(".p-reconocido").value) || 0,
-        descuento: parseFloat(tr.querySelector(".p-descuento").value) || 0,
-      });
-    });
-
-    const acta = {
-      municipio: fd.get("municipio"),
-      contrato: fd.get("contrato"),
-      acta_no: fd.get("acta_no"),
-      meses: fd.get("meses"),
-      empresa: fd.get("empresa"),
-      nit: fd.get("nit"),
-      regimen: fd.get("regimen"),
-      archivo_origen: "(transcripción manual desde PDF)",
-      programas,
-      total_ejecucion: {
-        vr_exigido: parseFloat(fd.get("total_exigido")) || 0,
-        vr_reconocido: parseFloat(fd.get("total_reconocido")) || 0,
-        descuento: parseFloat(fd.get("total_descuento")) || 0,
-      },
-    };
-    const periodo = fd.get("periodo");
-    const checks = validar(acta);
-    consolidar(acta, periodo, checks);
-    renderResultado(container, { acta, checks, periodo });
+  document.getElementById("input-pdfs").addEventListener("change", (e) => {
+    const files = Array.from(e.target.files);
+    const container = document.getElementById("pdf-items");
+    files.forEach((file) => container.appendChild(crearTarjetaPDF(file)));
+    e.target.value = "";
   });
 
   document.getElementById("input-maestro").addEventListener("change", async (e) => {

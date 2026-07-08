@@ -33,14 +33,14 @@
   <!-- TAB: Cargar Excel -->
   <section id="tab-xlsx" class="tab active">
     <div class="card">
-      <h2>Cargar acta en Excel</h2>
-      <p class="hint">Se extraen automáticamente el encabezado (Nº Acta, Nº Contrato, Empresa, Municipio) y la tabla de Programa / Vr Exigido / Vr Reconocido / Descuento.</p>
+      <h2>Cargar acta(s) en Excel</h2>
+      <p class="hint">Puedes seleccionar varios archivos .xlsx a la vez (ej. todos los municipios de un mismo periodo). Se extraen automáticamente el encabezado (Nº Acta, Nº Contrato, Empresa, Municipio) y la tabla de Programa / Vr Exigido / Vr Reconocido / Descuento de cada uno.</p>
       <form id="form-xlsx">
-        <label>Archivo (.xlsx)</label>
-        <input type="file" name="file" id="file-xlsx" accept=".xlsx" required>
-        <label>Periodo</label>
+        <label>Archivos (.xlsx) — selección múltiple habilitada</label>
+        <input type="file" name="file" id="file-xlsx" accept=".xlsx" multiple required>
+        <label>Periodo (se aplica a todos los archivos seleccionados)</label>
         <select name="periodo" id="periodo-xlsx" required></select>
-        <button class="primary" type="submit">Validar y consolidar</button>
+        <button class="primary" type="submit">Validar y consolidar todos</button>
       </form>
       <div id="resultado-xlsx"></div>
     </div>
@@ -49,41 +49,11 @@
   <!-- TAB: Cargar PDF manual -->
   <section id="tab-manual" class="tab">
     <div class="card">
-      <h2>Cargar acta en PDF (transcripción manual)</h2>
-      <p class="hint">Los PDF de estas actas suelen ser escaneos sin texto seleccionable. Transcribe los valores del documento en este formulario.</p>
-      <form id="form-manual">
-        <div class="grid2">
-          <div><label>Municipio</label><input type="text" name="municipio" required></div>
-          <div><label>Nº Contrato</label><input type="text" name="contrato" required placeholder="Ej. 20013-061-PMT"></div>
-          <div><label>Nº Acta</label><input type="text" name="acta_no" required placeholder="Ej. 20013-061-PMT-5"></div>
-          <div><label>Periodo</label><select name="periodo" id="periodo-manual" required></select></div>
-          <div><label>Meses evaluados</label><input type="text" name="meses" placeholder="Ej. ENE,FEB"></div>
-          <div><label>Empresa</label><input type="text" name="empresa" value="DUSAKAWI IPSI"></div>
-          <div><label>NIT</label><input type="text" name="nit"></div>
-          <div><label>Régimen</label><input type="text" name="regimen" value="SUBSIDIADO"></div>
-        </div>
-
-        <h3 style="margin-top:22px;">Tabla de programas</h3>
-        <div class="table-wrap">
-          <table id="tabla-programas">
-            <thead>
-              <tr><th>Programa</th><th>Vr Exigido</th><th>Vr Reconocido</th><th>Descuento</th><th></th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <button type="button" class="secondary" id="btn-agregar-fila">+ Agregar actividad</button>
-
-        <h3 style="margin-top:22px;">Total ejecución (según el acta)</h3>
-        <div class="grid2">
-          <div><label>Total Vr Exigido</label><input type="number" step="0.01" name="total_exigido"></div>
-          <div><label>Total Vr Reconocido</label><input type="number" step="0.01" name="total_reconocido"></div>
-          <div><label>Total Descuento</label><input type="number" step="0.01" name="total_descuento"></div>
-        </div>
-
-        <button class="primary" type="submit">Validar y consolidar</button>
-      </form>
-      <div id="resultado-manual"></div>
+      <h2>Cargar acta(s) en PDF</h2>
+      <p class="hint">Sube uno o varios PDF. Como estos escaneos no tienen texto seleccionable, la app no adivina los montos por ti (para no arriesgar un error de lectura en cifras financieras) — pero renderiza cada página aquí mismo, al lado del formulario, para que transcribas sin salir de la herramienta. Aparecerá un formulario independiente por cada PDF que subas.</p>
+      <label>Archivos (.pdf) — selección múltiple habilitada</label>
+      <input type="file" id="input-pdfs" accept=".pdf" multiple>
+      <div id="pdf-items"></div>
     </div>
   </section>
 
