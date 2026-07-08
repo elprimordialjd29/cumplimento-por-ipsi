@@ -29,6 +29,18 @@ const PROGRAMAS_TIPICOS = [
 const STORAGE_KEY = "dusakawi_actas_estado_v1";
 const STATE = { detalle: [], validaciones: [] };
 
+// Ordena las actividades como vienen en el acta original (PROGRAMAS_TIPICOS),
+// no alfabéticamente. Cualquier actividad que no esté en la lista típica
+// queda al final, ordenada alfabéticamente entre sí.
+function compararProgramas(a, b) {
+  const ia = PROGRAMAS_TIPICOS.indexOf(a);
+  const ib = PROGRAMAS_TIPICOS.indexOf(b);
+  const oa = ia === -1 ? PROGRAMAS_TIPICOS.length : ia;
+  const ob = ib === -1 ? PROGRAMAS_TIPICOS.length : ib;
+  if (oa !== ob) return oa - ob;
+  return a.localeCompare(b);
+}
+
 // Municipios/prestadores conocidos, para adivinar el campo a partir de la
 // ruta de carpeta o el nombre del archivo (más específico primero).
 const MUNICIPIOS_CONOCIDOS = [
@@ -380,7 +392,7 @@ function rebuildResumen() {
   Object.values(data)
     .sort((a, b) => (a.municipio + a.contrato).localeCompare(b.municipio + b.contrato))
     .forEach((entry) => {
-      Object.keys(entry.programas).sort().forEach((programa) => {
+      Object.keys(entry.programas).sort(compararProgramas).forEach((programa) => {
         const periodos = entry.programas[programa];
         const row = { Municipio: entry.municipio, Contrato: entry.contrato, Programa: programa };
         const valores = [];
@@ -421,7 +433,7 @@ function rebuildResumenGeneral() {
     [...periodosPresentes].filter((p) => !PERIODO_ORDEN.includes(p)).sort()
   );
 
-  const rows = Object.keys(porPrograma).sort().map((programa) => {
+  const rows = Object.keys(porPrograma).sort(compararProgramas).map((programa) => {
     const p = porPrograma[programa];
     const row = {
       Programa: programa,
