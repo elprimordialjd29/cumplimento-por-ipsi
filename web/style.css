@@ -255,6 +255,8 @@ tbody tr:hover td { background: #f7f9ff; }
 .resumen-grupo h3 { color: var(--brand-darker); font-size: 1rem; margin-bottom: 10px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .resumen-general { margin-top: 34px; padding-top: 24px; border-top: 3px dashed var(--borde); }
 .resumen-general h3 { color: var(--amarillo); }
+.leyenda-umbrales { text-align: center; font-size: 0.85rem; color: var(--texto-suave); margin: 4px 0 22px; }
+.leyenda-umbrales .pct-pill { margin-right: 4px; }
 
 .staging-item { border: 1px solid var(--borde); border-radius: var(--radius); padding: 18px; margin-top: 16px; background: #fbfcfe; }
 .staging-item h3 { color: var(--brand-darker); }

@@ -496,10 +496,11 @@ function renderResultado(container, payload) {
     </div>`;
 }
 
+// Umbrales: >=90% excelente, >=80% cumple, <80% no cumple.
 function fmtPct(v) {
   if (v === null || v === undefined || v === "") return '<span style="color:#c0c4cc;">—</span>';
   const pct = v * 100;
-  const cls = pct >= 99.9 ? "pct-pill-ok" : pct >= 90 ? "pct-pill-mid" : "pct-pill-bad";
+  const cls = pct >= 90 ? "pct-pill-ok" : pct >= 80 ? "pct-pill-mid" : "pct-pill-bad";
   return `<span class="pct-pill ${cls}">${pct.toFixed(1)}%</span>`;
 }
 
@@ -545,6 +546,100 @@ function escapeXml(s) {
   return String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
 }
 
+// Rasteriza un SVG (string) a bytes PNG, dibujándolo sobre fondo blanco
+// (las celdas de Excel no manejan bien la transparencia).
+function svgAPng(svgString, width, height, escala = 2) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width * escala;
+      canvas.height = height * escala;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      canvas.toBlob((blob2) => {
+        if (!blob2) return reject(new Error("No se pudo generar el PNG de la gráfica"));
+        blob2.arrayBuffer().then((buf) => resolve(new Uint8Array(buf)));
+      }, "image/png");
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("No se pudo rasterizar la gráfica (SVG inválido)")); };
+    img.src = url;
+  });
+}
+
+// Inserta una imagen PNG como dibujo flotante en una hoja del libro, ya
+// convertido a zip (JSZip). Ubica el borde superior izquierdo en la fila
+// `filaAncla` (0-based) de la hoja llamada `sheetName`.
+async function insertarImagenEnHoja(zip, sheetName, pngBytes, pxWidth, pxHeight, filaAncla) {
+  const parser = new DOMParser();
+
+  const wbXml = await zip.file("xl/workbook.xml").async("string");
+  const wbDoc = parser.parseFromString(wbXml, "application/xml");
+  const sheetEl = [...wbDoc.getElementsByTagName("sheet")].find((s) => s.getAttribute("name") === sheetName);
+  if (!sheetEl) return false;
+  const rId = sheetEl.getAttribute("r:id");
+
+  const wbRelsXml = await zip.file("xl/_rels/workbook.xml.rels").async("string");
+  const wbRelsDoc = parser.parseFromString(wbRelsXml, "application/xml");
+  const rel = [...wbRelsDoc.getElementsByTagName("Relationship")].find((r) => r.getAttribute("Id") === rId);
+  if (!rel) return false;
+  const sheetFileName = rel.getAttribute("Target").split("/").pop();
+  const sheetXmlPath = `xl/worksheets/${sheetFileName}`;
+
+  zip.file("xl/media/image1.png", pngBytes);
+
+  const emu = 9525; // EMU por pixel
+  const cx = Math.round(pxWidth * emu);
+  const cy = Math.round(pxHeight * emu);
+  zip.file(
+    "xl/drawings/drawing1.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+<xdr:oneCellAnchor>
+<xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${filaAncla}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
+<xdr:ext cx="${cx}" cy="${cy}"/>
+<xdr:pic>
+<xdr:nvPicPr><xdr:cNvPr id="1" name="GraficaCumplimiento"/><xdr:cNvPicPr/></xdr:nvPicPr>
+<xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
+</xdr:pic>
+<xdr:clientData/>
+</xdr:oneCellAnchor>
+</xdr:wsDr>`
+  );
+  zip.file(
+    "xl/drawings/_rels/drawing1.xml.rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
+</Relationships>`
+  );
+  zip.file(
+    `xl/worksheets/_rels/${sheetFileName}.rels`,
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>
+</Relationships>`
+  );
+
+  let sheetXml = await zip.file(sheetXmlPath).async("string");
+  sheetXml = sheetXml.replace("</worksheet>", '<drawing r:id="rId1"/></worksheet>');
+  zip.file(sheetXmlPath, sheetXml);
+
+  let ctXml = await zip.file("[Content_Types].xml").async("string");
+  if (!ctXml.includes('Extension="png"')) {
+    ctXml = ctXml.replace("</Types>", '<Default Extension="png" ContentType="image/png"/></Types>');
+  }
+  ctXml = ctXml.replace("</Types>", '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>');
+  zip.file("[Content_Types].xml", ctXml);
+  return true;
+}
+
 // Grafica de barras (SVG puro, sin librerias) con el % Promedio de cada
 // actividad. Nunca puede pasar de 100% porque es un promedio de fracciones
 // <=1 (si alguna actividad tuviera Reconocido > Exigido, la validacion ya lo
@@ -565,7 +660,7 @@ function graficoBarrasSVG(rows) {
     const barH = (pct / 100) * chartH;
     const x = padLeft + i * gap + (gap - barW) / 2;
     const y = padTop + (chartH - barH);
-    const color = pct >= 99.9 ? "#16924f" : pct >= 90 ? "#b7791f" : "#d0342c";
+    const color = pct >= 90 ? "#16924f" : pct >= 80 ? "#b7791f" : "#d0342c";
     const cx = x + barW / 2;
     const labelY = padTop + chartH + 16;
     const nombreCorto = r.Programa.length > 30 ? r.Programa.slice(0, 28) + "…" : r.Programa;
@@ -576,7 +671,7 @@ function graficoBarrasSVG(rows) {
   });
 
   const y100 = padTop;
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; max-width:${w}px; height:auto; display:block; margin:0 auto;">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="width:100%; max-width:${w}px; height:auto; display:block; margin:0 auto;">
     <line x1="${padLeft}" y1="${y100}" x2="${w - padRight}" y2="${y100}" stroke="#c7ccd6" stroke-dasharray="4 3"/>
     <text x="${padLeft}" y="${y100 - 6}" font-size="10" fill="#98a2b3">100%</text>
     ${bars}
@@ -600,6 +695,11 @@ function cargarResumen() {
     <h3>🌐 Consolidado general — DUSAKAWI IPSI (todos los municipios)</h3>
     <p class="hint">Una fila por actividad — el % es el promedio entre todos los municipios que la reportan (nunca supera 100%).</p>
     ${graficoBarrasSVG(rowsGeneral)}
+    <p class="leyenda-umbrales">
+      <span class="pct-pill pct-pill-ok">≥ 90%</span> Excelente &nbsp;
+      <span class="pct-pill pct-pill-mid">≥ 80%</span> Cumple &nbsp;
+      <span class="pct-pill pct-pill-bad">&lt; 80%</span> No cumple
+    </p>
     ${tablaResumenGeneralHtml(rowsGeneral, periodosGeneral, infoPeriodos)}
   </div>`;
 
@@ -725,7 +825,7 @@ function hojaConEstilo(aoa, opts = {}) {
   return ws;
 }
 
-function descargarMaestro() {
+async function descargarMaestro() {
   const wb = XLSX.utils.book_new();
 
   const detalleHeaders = DETALLE_COLUMNAS.map((c) => c.label);
@@ -764,7 +864,35 @@ function descargarMaestro() {
   const wsRes = hojaConEstilo(resAoa, { columnasPorcentaje: periodos.map((_, i) => 3 + i).concat([3 + periodos.length]) });
   XLSX.utils.book_append_sheet(wb, wsRes, "Resumen_Detalle_Prestador");
 
-  XLSX.writeFile(wb, "CONSOLIDADO_ACTAS_PYM_DUSAKAWI.xlsx");
+  const nombreArchivo = "CONSOLIDADO_ACTAS_PYM_DUSAKAWI.xlsx";
+  const bytesBase = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+
+  // Intenta insertar la gráfica del consolidado general como imagen en la
+  // hoja Resumen_General. Si algo falla (SVG raro, navegador sin soporte),
+  // se descarga igual el Excel sin la imagen en vez de fallar por completo.
+  try {
+    if (typeof JSZip === "undefined") throw new Error("JSZip no cargó");
+    const svgChart = graficoBarrasSVG(rowsGeneral);
+    const dims = svgChart.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+    const chartW = dims ? parseFloat(dims[1]) : 700;
+    const chartH = dims ? parseFloat(dims[2]) : 340;
+    const pngBytes = await svgAPng(svgChart, chartW, chartH);
+    const zip = await JSZip.loadAsync(bytesBase);
+    const filaAncla = rowsGeneral.length + 2;
+    await insertarImagenEnHoja(zip, "Resumen_General", pngBytes, chartW, chartH, filaAncla);
+    const finalBlob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(finalBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nombreArchivo;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.warn("No se pudo insertar la gráfica en el Excel, se descarga sin ella:", e);
+    XLSX.writeFile(wb, nombreArchivo);
+  }
 }
 
 function filasDesdeHoja(ws, columnas) {
