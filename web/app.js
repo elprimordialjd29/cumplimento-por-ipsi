@@ -56,6 +56,34 @@ function compararProgramas(a, b) {
   return a.localeCompare(b);
 }
 
+// Distintos prestadores nombran la misma actividad con variantes de texto
+// (ej. "POSPARTO" vs "ATENCION POSPARTO", "MATERNO PERINATAL - CONTROL
+// PRENATAL" vs "MATERNO PERINATAL"). Esto normaliza a un único nombre
+// canónico (los de PROGRAMAS_TIPICOS) por palabras clave, para que no
+// queden como filas separadas en los consolidados. Si no reconoce ninguna
+// palabra clave, deja el nombre tal cual llegó (aparece como actividad
+// aparte, ordenada al final).
+function normalizarPrograma(nombre) {
+  const n = String(nombre || "")
+    .normalize("NFD").replace(/\p{Diacritic}/gu, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (n.includes("PRIMERA INFANCIA")) return "INDIVIDUALES PARA NIÑOS Y NIÑAS EN PRIMERA INFANCIA 1M - 5A";
+  if (n.includes("INFANCIA")) return "INDIVIDUALES PARA NIÑOS Y NIÑAS EN INFANCIA 6 - 11 AÑOS";
+  if (n.includes("ADOLESCENTE")) return "INDIVIDUALES PARA LOS ADOLESCENTES 12 - 17 AÑOS";
+  if (n.includes("JOVEN")) return "INDIVIDUALES PARA LOS JOVENES 18 - 28 AÑOS";
+  if (n.includes("ADULTO") && (n.includes("MAYOR") || n.includes("VEJEZ"))) return "INDIVIDUALES PARA LOS ADULTOS MAYORES 60 A 80 Y MAS";
+  if (n.includes("ADULTO")) return "INDIVIDUALES PARA LOS ADULTOS 29 - 59 AÑOS";
+  if (/\bPAI\b/.test(n) || n.includes("INMUNIZ") || n.includes("VACUNA")) return "PAI";
+  if (n.includes("MATERNO") || n.includes("PERINATAL") || n.includes("PRENATAL") || n.includes("GESTANTE")) return "MATERNO PERINATAL";
+  if (n.includes("POSPARTO") || n.includes("PUERPERIO")) return "ATENCION POSPARTO";
+  if (n.includes("DEMANDA INDUCIDA")) return "DEMANDA INDUCIDA";
+  if (n.includes("CARDIOVASCULAR") || /\bRCV\b/.test(n)) return "RUTA RIESGO CARDIOVASCULAR BAJA";
+  return String(nombre || "").trim();
+}
+
 // Municipios/prestadores conocidos, para adivinar el campo a partir de la
 // ruta de carpeta o el nombre del archivo (más específico primero).
 const MUNICIPIOS_CONOCIDOS = [
@@ -373,7 +401,7 @@ function consolidar(acta, periodo, checks) {
     STATE.detalle.push({
       Municipio: municipio, Contrato: contrato, Acta_No: actaNo, Periodo: periodo,
       Meses: acta.meses || "", Anio: anio, Empresa: acta.empresa || "", Nit: acta.nit || "", Regimen: acta.regimen || "",
-      Programa: p.programa, Vr_Exigido: exigido, Vr_Reconocido: reconocido, Descuento: descuento,
+      Programa: normalizarPrograma(p.programa), Vr_Exigido: exigido, Vr_Reconocido: reconocido, Descuento: descuento,
       Pct_Cumplimiento: pct, Archivo_Origen: acta.archivo_origen || "", Fecha_Carga: fechaCarga,
     });
   });
@@ -388,10 +416,11 @@ function consolidar(acta, periodo, checks) {
   guardarEstado();
 }
 
-function rebuildResumen() {
+function rebuildResumen(actividadesSel) {
   const data = {};
   const periodosPresentes = new Set();
   STATE.detalle.forEach((row) => {
+    if (actividadesSel && !actividadesSel.has(row.Programa)) return;
     const key = row.Municipio + "||" + row.Contrato;
     if (!data[key]) data[key] = { municipio: row.Municipio, contrato: row.Contrato, programas: {} };
     if (!data[key].programas[row.Programa]) data[key].programas[row.Programa] = {};
@@ -513,10 +542,11 @@ function estadisticaCumplimiento(rowsEmpresa) {
 // Agregado "caso extremo": DUSAKAWI es el único prestador — esto junta
 // todos los municipios en una sola fila por actividad, promediando entre
 // todos los que la reporten.
-function rebuildResumenGeneral() {
+function rebuildResumenGeneral(actividadesSel) {
   const porPrograma = {};
   const periodosPresentes = new Set();
   STATE.detalle.forEach((row) => {
+    if (actividadesSel && !actividadesSel.has(row.Programa)) return;
     periodosPresentes.add(row.Periodo);
     if (!porPrograma[row.Programa]) {
       porPrograma[row.Programa] = { periodos: {}, municipios: new Set(), prestadores: new Set() };
@@ -853,16 +883,30 @@ function graficoBarrasSVG(rows) {
 
 function cargarResumen() {
   const container = document.getElementById("resumen-contenido");
-  const { rows, periodos } = rebuildResumen();
-  if (rows.length === 0) {
+  if (STATE.detalle.length === 0) {
     container.innerHTML = '<div class="empty">Aún no hay actas consolidadas.</div>';
     return;
   }
+  const { rows, periodos } = rebuildResumen(actividadesSeleccionadas);
 
   // Vista principal: DUSAKAWI es el único prestador — un solo consolidado
-  // sin importar el municipio, una fila por actividad.
-  const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
+  // sin importar el municipio, una fila por actividad. Solo incluye las
+  // actividades marcadas en el checklist de abajo.
+  const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral(actividadesSeleccionadas);
   const infoPeriodos = mapaPeriodoInfo();
+
+  if (rows.length === 0) {
+    container.innerHTML = '<div class="empty">Ninguna actividad marcada en el checklist tiene datos cargados. Marca al menos una actividad abajo.</div>' + checklistActividadesHtml();
+    container.querySelectorAll(".chk-actividad").forEach((chk) => {
+      chk.addEventListener("change", () => {
+        const programa = PROGRAMAS_TIPICOS[parseInt(chk.dataset.idx, 10)];
+        if (chk.checked) actividadesSeleccionadas.add(programa);
+        else actividadesSeleccionadas.delete(programa);
+        cargarResumen();
+      });
+    });
+    return;
+  }
 
   let html = `<div class="resumen-grupo resumen-general">
     <h3>🌐 Consolidado general — DUSAKAWI IPSI (todos los municipios)</h3>
@@ -1052,7 +1096,7 @@ async function descargarMaestro() {
   // Resumen_General primero: es el consolidado principal — DUSAKAWI es el
   // único prestador, así que es una fila por actividad sin importar el
   // municipio, con las fechas reales de cada periodo en el encabezado.
-  const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
+  const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral(actividadesSeleccionadas);
   const infoPeriodosXlsx = mapaPeriodoInfo();
   const resGeneralHeaders = ["Programa / Actividad", ...periodosGeneral.map((p) => etiquetaPeriodo(p, infoPeriodosXlsx[p])), "Promedio", "Nº Municipios", "Municipios", "Prestador (Empresa)"];
   const resGeneralAoa = [
@@ -1092,7 +1136,7 @@ async function descargarMaestro() {
   });
   XLSX.utils.book_append_sheet(wb, wsPres, "Consolidado_Prestadores");
 
-  const { rows, periodos } = rebuildResumen();
+  const { rows, periodos } = rebuildResumen(actividadesSeleccionadas);
   const resHeaders = ["Municipio", "Nº Contrato", "Programa / Actividad", ...periodos.map((p) => etiquetaPeriodo(p, infoPeriodosXlsx[p])), "Promedio"];
   const resAoa = [
     resHeaders,
