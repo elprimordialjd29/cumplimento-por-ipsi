@@ -443,48 +443,115 @@ function cargarValidaciones() {
 // --------------------------------------------------------------------------
 // Exportar / Importar el Excel maestro
 // --------------------------------------------------------------------------
-function aplicarFormatoPorcentaje(ws, colIdx, numRows) {
+// Cada columna define su clave interna (usada en STATE) y la etiqueta bonita
+// que se muestra en el Excel. La importación se hace por POSICIÓN (no por
+// texto de encabezado), así el archivo puede tener etiquetas legibles sin
+// romper la relectura.
+const DETALLE_COLUMNAS = [
+  { key: "Municipio", label: "Municipio" },
+  { key: "Contrato", label: "Nº Contrato" },
+  { key: "Acta_No", label: "Nº Acta" },
+  { key: "Periodo", label: "Periodo" },
+  { key: "Meses", label: "Meses Evaluados" },
+  { key: "Empresa", label: "Empresa" },
+  { key: "Nit", label: "NIT" },
+  { key: "Regimen", label: "Régimen" },
+  { key: "Programa", label: "Programa / Actividad" },
+  { key: "Vr_Exigido", label: "Vr Exigido" },
+  { key: "Vr_Reconocido", label: "Vr Reconocido" },
+  { key: "Descuento", label: "Descuento" },
+  { key: "Pct_Cumplimiento", label: "% Cumplimiento" },
+  { key: "Archivo_Origen", label: "Archivo Origen" },
+  { key: "Fecha_Carga", label: "Fecha de Carga" },
+];
+const VALIDACIONES_COLUMNAS = [
+  { key: "Municipio", label: "Municipio" },
+  { key: "Contrato", label: "Nº Contrato" },
+  { key: "Acta_No", label: "Nº Acta" },
+  { key: "Periodo", label: "Periodo" },
+  { key: "Chequeo", label: "Chequeo" },
+  { key: "Resultado", label: "Resultado" },
+  { key: "Detalle", label: "Detalle" },
+];
+
+function estadoTexto(pct) {
+  if (pct === null || pct === undefined) return "";
+  if (pct >= 0.999) return "✅ Cumple";
+  if (pct >= 0.9) return "⚠️ Parcial";
+  return "🔴 Incumple";
+}
+
+function aplicarFormatoNumero(ws, colIdx, numRows, formato) {
   for (let r = 1; r < numRows; r++) {
-    const addr = XLSX.utils.encode_cell({ r, c: colIdx });
-    const cell = ws[addr];
-    if (cell && typeof cell.v === "number") cell.z = "0.0%";
+    const cell = ws[XLSX.utils.encode_cell({ r, c: colIdx })];
+    if (cell && typeof cell.v === "number") cell.z = formato;
   }
+}
+
+// Ajusta el ancho de cada columna al contenido más largo (con topes
+// razonables), ya que la librería gratuita no permite fijar colores/negrita
+// de celda — esto es lo que realmente evita que los números se corten o se
+// encimen con el encabezado.
+function autoAjustarColumnas(ws, aoa) {
+  const anchos = aoa[0].map((_, colIdx) => {
+    let max = 8;
+    for (const fila of aoa) {
+      const v = fila[colIdx];
+      const largo = v === null || v === undefined ? 0 : String(v).length;
+      if (largo > max) max = largo;
+    }
+    return { wch: Math.min(Math.max(max + 2, 10), 45) };
+  });
+  ws["!cols"] = anchos;
+}
+
+function hojaConEstilo(aoa, opts = {}) {
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  autoAjustarColumnas(ws, aoa);
+  (opts.columnasMoneda || []).forEach((c) => aplicarFormatoNumero(ws, c, aoa.length, "#,##0.00"));
+  (opts.columnasPorcentaje || []).forEach((c) => aplicarFormatoNumero(ws, c, aoa.length, "0.0%"));
+  ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: aoa[0].length - 1 } }) };
+  return ws;
 }
 
 function descargarMaestro() {
   const wb = XLSX.utils.book_new();
 
-  const detalleHeaders = ["Municipio", "Contrato", "Acta_No", "Periodo", "Meses", "Empresa", "Nit", "Regimen",
-    "Programa", "Vr_Exigido", "Vr_Reconocido", "Descuento", "Pct_Cumplimiento", "Archivo_Origen", "Fecha_Carga"];
-  const detalleAoa = [detalleHeaders, ...STATE.detalle.map((r) => detalleHeaders.map((h) => (r[h] ?? null)))];
-  const wsDetalle = XLSX.utils.aoa_to_sheet(detalleAoa);
-  aplicarFormatoPorcentaje(wsDetalle, 12, detalleAoa.length);
+  const detalleHeaders = DETALLE_COLUMNAS.map((c) => c.label);
+  const detalleAoa = [detalleHeaders, ...STATE.detalle.map((r) => DETALLE_COLUMNAS.map((c) => r[c.key] ?? null))];
+  const wsDetalle = hojaConEstilo(detalleAoa, { columnasMoneda: [9, 10, 11], columnasPorcentaje: [12] });
   XLSX.utils.book_append_sheet(wb, wsDetalle, "Detalle");
 
-  const valHeaders = ["Municipio", "Contrato", "Acta_No", "Periodo", "Chequeo", "Resultado", "Detalle"];
-  const valAoa = [valHeaders, ...STATE.validaciones.map((r) => valHeaders.map((h) => (r[h] ?? null)))];
-  const wsVal = XLSX.utils.aoa_to_sheet(valAoa);
+  const valHeaders = VALIDACIONES_COLUMNAS.map((c) => c.label);
+  const valAoa = [valHeaders, ...STATE.validaciones.map((r) => VALIDACIONES_COLUMNAS.map((c) => r[c.key] ?? null))];
+  const wsVal = hojaConEstilo(valAoa, {});
   XLSX.utils.book_append_sheet(wb, wsVal, "Validaciones");
 
   const { rows, periodos } = rebuildResumen();
-  const resHeaders = ["Municipio", "Contrato", "Programa", ...periodos, "Promedio"];
-  const resAoa = [resHeaders, ...rows.map((r) => resHeaders.map((h) => (r[h] ?? null)))];
-  const wsRes = XLSX.utils.aoa_to_sheet(resAoa);
-  for (let c = 3; c < resHeaders.length; c++) aplicarFormatoPorcentaje(wsRes, c, resAoa.length);
+  const resHeaders = ["Municipio", "Nº Contrato", "Programa / Actividad", ...periodos, "Promedio", "Estado"];
+  const resAoa = [
+    resHeaders,
+    ...rows.map((r) => [r.Municipio, r.Contrato, r.Programa, ...periodos.map((p) => r[p] ?? null), r.Promedio ?? null, estadoTexto(r.Promedio)]),
+  ];
+  const wsRes = hojaConEstilo(resAoa, { columnasPorcentaje: periodos.map((_, i) => 3 + i).concat([3 + periodos.length]) });
   XLSX.utils.book_append_sheet(wb, wsRes, "Resumen_Cumplimiento");
 
   XLSX.writeFile(wb, "CONSOLIDADO_ACTAS_PYM_DUSAKAWI.xlsx");
 }
 
+function filasDesdeHoja(ws, columnas) {
+  if (!ws) return [];
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  return aoa.slice(1).filter((fila) => fila.some((v) => v !== null && v !== "")).map((fila) => {
+    const obj = {};
+    columnas.forEach((c, i) => { obj[c.key] = fila[i] ?? null; });
+    return obj;
+  });
+}
+
 function cargarMaestroDesdeArchivo(workbook) {
-  const detalle = workbook.SheetNames.includes("Detalle")
-    ? XLSX.utils.sheet_to_json(workbook.Sheets["Detalle"], { defval: null })
-    : [];
-  const validaciones = workbook.SheetNames.includes("Validaciones")
-    ? XLSX.utils.sheet_to_json(workbook.Sheets["Validaciones"], { defval: null })
-    : [];
-  STATE.detalle = detalle;
-  STATE.validaciones = validaciones;
+  STATE.detalle = filasDesdeHoja(workbook.Sheets["Detalle"], DETALLE_COLUMNAS);
+  STATE.validaciones = filasDesdeHoja(workbook.Sheets["Validaciones"], VALIDACIONES_COLUMNAS);
   guardarEstado();
 }
 
