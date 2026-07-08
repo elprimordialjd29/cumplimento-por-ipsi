@@ -253,6 +253,13 @@ function validar(acta) {
       diff <= tol,
       `Exigido-Descuento=${fmtMoney(exigido - descuento)} vs Reconocido=${fmtMoney(reconocido)} (dif=${fmtMoney(diff)})`
     );
+    if (exigido > 0) {
+      add(
+        `% Cumplimiento no supera 100%: ${p.programa}`,
+        reconocido <= exigido + tol,
+        `Vr Reconocido=${fmtMoney(reconocido)} no puede superar Vr Exigido=${fmtMoney(exigido)} (${((reconocido / exigido) * 100).toFixed(1)}%)`
+      );
+    }
   });
 
   const total = acta.total_ejecucion;
@@ -477,6 +484,48 @@ function tablaResumenHtml(headerCols, filas) {
   return `<div class="table-wrap"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`;
 }
 
+function escapeXml(s) {
+  return String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+}
+
+// Grafica de barras (SVG puro, sin librerias) con el % Promedio de cada
+// actividad. Nunca puede pasar de 100% porque es un promedio de fracciones
+// <=1 (si alguna actividad tuviera Reconocido > Exigido, la validacion ya lo
+// marca como ERROR antes de llegar aqui).
+function graficoBarrasSVG(rows) {
+  const n = rows.length;
+  if (!n) return "";
+  const w = Math.max(640, n * 92);
+  const h = 340;
+  const padTop = 28, padBottom = 165, padLeft = 90, padRight = 20;
+  const chartH = h - padTop - padBottom;
+  const gap = (w - padLeft - padRight) / n;
+  const barW = Math.min(48, gap * 0.55);
+
+  let bars = "";
+  rows.forEach((r, i) => {
+    const pct = r.Promedio === null || r.Promedio === undefined ? 0 : Math.min(r.Promedio, 1) * 100;
+    const barH = (pct / 100) * chartH;
+    const x = padLeft + i * gap + (gap - barW) / 2;
+    const y = padTop + (chartH - barH);
+    const color = pct >= 99.9 ? "#16924f" : pct >= 90 ? "#b7791f" : "#d0342c";
+    const cx = x + barW / 2;
+    const labelY = padTop + chartH + 16;
+    const nombreCorto = r.Programa.length > 30 ? r.Programa.slice(0, 28) + "…" : r.Programa;
+    bars += `
+      <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(barH, 1).toFixed(1)}" fill="${color}" rx="4"/>
+      <text x="${cx.toFixed(1)}" y="${(y - 7).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${color}">${r.Promedio === null ? "-" : pct.toFixed(0) + "%"}</text>
+      <text x="${cx.toFixed(1)}" y="${labelY}" font-size="10" fill="#475067" text-anchor="end" transform="rotate(-40 ${cx.toFixed(1)} ${labelY})">${escapeXml(nombreCorto)}</text>`;
+  });
+
+  const y100 = padTop;
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; max-width:${w}px; height:auto; display:block; margin:0 auto;">
+    <line x1="${padLeft}" y1="${y100}" x2="${w - padRight}" y2="${y100}" stroke="#c7ccd6" stroke-dasharray="4 3"/>
+    <text x="${padLeft}" y="${y100 - 6}" font-size="10" fill="#98a2b3">100%</text>
+    ${bars}
+  </svg>`;
+}
+
 function cargarResumen() {
   const container = document.getElementById("resumen-contenido");
   const { rows, periodos } = rebuildResumen();
@@ -485,8 +534,20 @@ function cargarResumen() {
     return;
   }
 
-  // Agrupar por prestador (Municipio + Contrato) — el análisis principal es
-  // por prestador, no una tabla mezclada.
+  // Vista principal: UN SOLO consolidado, sin importar el municipio — una
+  // fila por actividad, promediando entre todos los prestadores y periodos.
+  const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
+  const headerColsGeneral = ["Programa", ...periodosGeneral, "Promedio"];
+  const filasGeneral = rowsGeneral.map((r) => [r.Programa, ...periodosGeneral.map((p) => r[p]), r.Promedio]);
+
+  let html = `<div class="resumen-grupo resumen-general">
+    <h3>🌐 Consolidado general (todos los prestadores)</h3>
+    <p class="hint">Una fila por actividad — el % es el promedio entre todos los municipios/contratos que la reportan. No puede superar 100%.</p>
+    ${graficoBarrasSVG(rowsGeneral)}
+    ${tablaResumenHtml(headerColsGeneral, filasGeneral)}
+  </div>`;
+
+  // Detalle: desglose por prestador, para quien necesite ver el origen.
   const grupos = new Map();
   rows.forEach((r) => {
     const key = r.Municipio + "||" + r.Contrato;
@@ -494,7 +555,10 @@ function cargarResumen() {
     grupos.get(key).filas.push(r);
   });
 
-  let html = "";
+  html += `<div class="resumen-detalle-toggle">
+    <button type="button" class="secondary" id="btn-toggle-detalle-prestador">▸ Ver desglose por prestador (${grupos.size})</button>
+  </div>
+  <div id="detalle-por-prestador" style="display:none; margin-top:16px;">`;
   grupos.forEach((g) => {
     const headerCols = ["Programa", ...periodos, "Promedio"];
     const filas = g.filas.map((r) => [r.Programa, ...periodos.map((p) => r[p]), r.Promedio]);
@@ -503,18 +567,16 @@ function cargarResumen() {
       ${tablaResumenHtml(headerCols, filas)}
     </div>`;
   });
-
-  // Caso extremo: consolidado general de todos los prestadores juntos.
-  const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
-  const headerColsGeneral = ["Programa", ...periodosGeneral, "Promedio"];
-  const filasGeneral = rowsGeneral.map((r) => [r.Programa, ...periodosGeneral.map((p) => r[p]), r.Promedio]);
-  html += `<div class="resumen-grupo resumen-general">
-    <h3>🌐 Consolidado general (todos los prestadores)</h3>
-    <p class="hint">Cada actividad promediada entre todos los municipios/contratos que la reportan.</p>
-    ${tablaResumenHtml(headerColsGeneral, filasGeneral)}
-  </div>`;
+  html += `</div>`;
 
   container.innerHTML = html;
+  const btnToggle = document.getElementById("btn-toggle-detalle-prestador");
+  btnToggle.addEventListener("click", () => {
+    const det = document.getElementById("detalle-por-prestador");
+    const abierto = det.style.display !== "none";
+    det.style.display = abierto ? "none" : "block";
+    btnToggle.textContent = `${abierto ? "▸" : "▾"} Ver desglose por prestador (${grupos.size})`;
+  });
 }
 
 function cargarValidaciones() {
@@ -626,15 +688,8 @@ function descargarMaestro() {
   const wsVal = hojaConEstilo(valAoa, {});
   XLSX.utils.book_append_sheet(wb, wsVal, "Validaciones");
 
-  const { rows, periodos } = rebuildResumen();
-  const resHeaders = ["Municipio", "Nº Contrato", "Programa / Actividad", ...periodos, "Promedio", "Estado"];
-  const resAoa = [
-    resHeaders,
-    ...rows.map((r) => [r.Municipio, r.Contrato, r.Programa, ...periodos.map((p) => r[p] ?? null), r.Promedio ?? null, estadoTexto(r.Promedio)]),
-  ];
-  const wsRes = hojaConEstilo(resAoa, { columnasPorcentaje: periodos.map((_, i) => 3 + i).concat([3 + periodos.length]) });
-  XLSX.utils.book_append_sheet(wb, wsRes, "Resumen_Cumplimiento");
-
+  // Resumen_General primero: es el consolidado principal (una fila por
+  // actividad, sin importar el municipio).
   const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
   const resGeneralHeaders = ["Programa / Actividad", ...periodosGeneral, "Promedio", "Estado"];
   const resGeneralAoa = [
@@ -643,6 +698,15 @@ function descargarMaestro() {
   ];
   const wsResGeneral = hojaConEstilo(resGeneralAoa, { columnasPorcentaje: periodosGeneral.map((_, i) => 1 + i).concat([1 + periodosGeneral.length]) });
   XLSX.utils.book_append_sheet(wb, wsResGeneral, "Resumen_General");
+
+  const { rows, periodos } = rebuildResumen();
+  const resHeaders = ["Municipio", "Nº Contrato", "Programa / Actividad", ...periodos, "Promedio", "Estado"];
+  const resAoa = [
+    resHeaders,
+    ...rows.map((r) => [r.Municipio, r.Contrato, r.Programa, ...periodos.map((p) => r[p] ?? null), r.Promedio ?? null, estadoTexto(r.Promedio)]),
+  ];
+  const wsRes = hojaConEstilo(resAoa, { columnasPorcentaje: periodos.map((_, i) => 3 + i).concat([3 + periodos.length]) });
+  XLSX.utils.book_append_sheet(wb, wsRes, "Resumen_Detalle_Prestador");
 
   XLSX.writeFile(wb, "CONSOLIDADO_ACTAS_PYM_DUSAKAWI.xlsx");
 }
