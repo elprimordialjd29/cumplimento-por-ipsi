@@ -154,6 +154,21 @@ function cargarEstado() {
   } catch (e) {
     console.warn("No se pudo leer el estado guardado:", e);
   }
+
+  // Migración automática: si el consolidado ya guardado en este navegador
+  // viene de antes de agregar normalizarPrograma(), sus nombres de
+  // actividad pueden estar sin normalizar (duplicados como "POSPARTO" vs
+  // "ATENCION POSPARTO"). Se renormaliza en cada carga, sin que el usuario
+  // tenga que borrar y volver a cargar todo.
+  let huboCambios = false;
+  STATE.detalle.forEach((row) => {
+    const normalizado = normalizarPrograma(row.Programa);
+    if (normalizado !== row.Programa) {
+      row.Programa = normalizado;
+      huboCambios = true;
+    }
+  });
+  if (huboCambios) guardarEstado();
 }
 
 // Borra todo: el consolidado guardado (localStorage), lo que esté en
