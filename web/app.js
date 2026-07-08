@@ -409,6 +409,55 @@ function rebuildResumen() {
   return { rows, periodos: periodosOrdenados };
 }
 
+// Consolidado de cumplimiento POR PRESTADOR/CONTRATO: una sola fila por cada
+// (Municipio, Contrato) con el promedio de TODA la ruta (todas las
+// actividades juntas), por periodo y general, más Cumple/No cumple (>=80%).
+// Pensado para ver de un vistazo decenas de prestadores con varios
+// contratos cada uno, sin desglosar actividad por actividad.
+function rebuildConsolidadoPrestadores() {
+  const grupos = {};
+  const periodosPresentes = new Set();
+  STATE.detalle.forEach((row) => {
+    periodosPresentes.add(row.Periodo);
+    const key = row.Municipio + "||" + row.Contrato;
+    if (!grupos[key]) {
+      grupos[key] = { municipio: row.Municipio, contrato: row.Contrato, empresas: new Set(), periodos: {} };
+    }
+    const g = grupos[key];
+    if (row.Empresa) g.empresas.add(row.Empresa);
+    if (!g.periodos[row.Periodo]) g.periodos[row.Periodo] = [];
+    if (row.Pct_Cumplimiento !== null && row.Pct_Cumplimiento !== undefined) {
+      g.periodos[row.Periodo].push(row.Pct_Cumplimiento);
+    }
+  });
+
+  const periodosOrdenados = PERIODO_ORDEN.filter((p) => periodosPresentes.has(p)).concat(
+    [...periodosPresentes].filter((p) => !PERIODO_ORDEN.includes(p)).sort()
+  );
+
+  const rows = Object.values(grupos)
+    .sort((a, b) => (a.municipio + a.contrato).localeCompare(b.municipio + b.contrato))
+    .map((g) => {
+      const row = {
+        Municipio: g.municipio,
+        Contrato: g.contrato,
+        Prestador: [...g.empresas].sort().join(", "),
+      };
+      const promediosPeriodo = [];
+      periodosOrdenados.forEach((per) => {
+        const arr = g.periodos[per];
+        const avg = arr && arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+        row[per] = avg;
+        if (avg !== null) promediosPeriodo.push(avg);
+      });
+      row.Promedio = promediosPeriodo.length ? promediosPeriodo.reduce((a, b) => a + b, 0) / promediosPeriodo.length : null;
+      row.Estado = row.Promedio === null ? "" : row.Promedio >= 0.8 ? "Cumple" : "No cumple";
+      return row;
+    });
+
+  return { rows, periodos: periodosOrdenados };
+}
+
 // Agregado "caso extremo": DUSAKAWI es el único prestador — esto junta
 // todos los municipios en una sola fila por actividad, promediando entre
 // todos los que la reporten.
@@ -548,6 +597,24 @@ function tablaResumenGeneralHtml(rows, periodos, infoPeriodos) {
       tds += `<td class="pct-cell" style="background:#f7f9ff;">${fmtPct(r.Promedio)}</td>`;
       tds += `<td class="hint" style="white-space:normal; max-width:220px;">${r.Municipios} <span class="pill ok">${r.NumMunicipios}</span></td>`;
       tds += `<td class="hint" style="white-space:normal; max-width:220px;">${r.Prestadores || "-"}</td>`;
+      return `<tr>${tds}</tr>`;
+    })
+    .join("");
+  return `<div class="table-wrap"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+// Tabla del consolidado por prestador/contrato: promedio de TODA la ruta en
+// un solo número por periodo, más Cumple/No cumple.
+function tablaConsolidadoPrestadoresHtml(rows, periodos, infoPeriodos) {
+  const headerCols = ["Municipio", "Nº Contrato", "Prestador (Empresa)", ...periodos.map((p) => etiquetaPeriodo(p, infoPeriodos[p])), "Promedio General", "Estado"];
+  const thead = "<tr>" + headerCols.map((c) => `<th>${c}</th>`).join("") + "</tr>";
+  const body = rows
+    .map((r) => {
+      let tds = `<td>${r.Municipio}</td><td>${r.Contrato}</td><td>${r.Prestador || "-"}</td>`;
+      periodos.forEach((p) => { tds += `<td class="pct-cell">${fmtPct(r[p])}</td>`; });
+      tds += `<td class="pct-cell" style="background:#f7f9ff;"><strong>${fmtPct(r.Promedio)}</strong></td>`;
+      const estadoCls = r.Estado === "Cumple" ? "ok" : r.Estado === "No cumple" ? "error" : "";
+      tds += `<td>${r.Estado ? `<span class="pill ${estadoCls}">${r.Estado}</span>` : "-"}</td>`;
       return `<tr>${tds}</tr>`;
     })
     .join("");
@@ -715,6 +782,15 @@ function cargarResumen() {
     ${tablaResumenGeneralHtml(rowsGeneral, periodosGeneral, infoPeriodos)}
   </div>`;
 
+  // Consolidado por prestador/contrato: toda la ruta en un solo % por cada
+  // uno (pensado para ver de un vistazo decenas de prestadores).
+  const { rows: rowsPrestadores, periodos: periodosPrestadores } = rebuildConsolidadoPrestadores();
+  html += `<div class="resumen-grupo">
+    <h3>📋 Consolidado de cumplimiento por prestador</h3>
+    <p class="hint">Promedio de TODA la ruta (todas las actividades juntas) por cada prestador/contrato — para ver de un vistazo cuáles cumplen. Cumple si el promedio general es ≥ 80%.</p>
+    ${tablaConsolidadoPrestadoresHtml(rowsPrestadores, periodosPrestadores, infoPeriodos)}
+  </div>`;
+
   // Detalle: desglose por municipio, para quien necesite ver el origen.
   const grupos = new Map();
   rows.forEach((r) => {
@@ -866,6 +942,21 @@ async function descargarMaestro() {
     columnasPorcentaje: periodosGeneral.map((_, i) => 1 + i).concat([1 + periodosGeneral.length]),
   });
   XLSX.utils.book_append_sheet(wb, wsResGeneral, "Resumen_General");
+
+  // Consolidado por prestador/contrato: toda la ruta en un solo % por cada
+  // uno, con Cumple/No cumple — pensado para decenas de prestadores.
+  const { rows: rowsPrestadores, periodos: periodosPrestadores } = rebuildConsolidadoPrestadores();
+  const presHeaders = ["Municipio", "Nº Contrato", "Prestador (Empresa)", ...periodosPrestadores.map((p) => etiquetaPeriodo(p, infoPeriodosXlsx[p])), "Promedio General", "Estado"];
+  const presAoa = [
+    presHeaders,
+    ...rowsPrestadores.map((r) => [
+      r.Municipio, r.Contrato, r.Prestador, ...periodosPrestadores.map((p) => r[p] ?? null), r.Promedio ?? null, r.Estado,
+    ]),
+  ];
+  const wsPres = hojaConEstilo(presAoa, {
+    columnasPorcentaje: periodosPrestadores.map((_, i) => 3 + i).concat([3 + periodosPrestadores.length]),
+  });
+  XLSX.utils.book_append_sheet(wb, wsPres, "Consolidado_Prestadores");
 
   const { rows, periodos } = rebuildResumen();
   const resHeaders = ["Municipio", "Nº Contrato", "Programa / Actividad", ...periodos.map((p) => etiquetaPeriodo(p, infoPeriodosXlsx[p])), "Promedio"];
