@@ -80,6 +80,11 @@ function rutaArchivo(file) {
   return file.webkitRelativePath || file.name;
 }
 
+function extraerAnio(texto) {
+  const m = String(texto || "").match(/(20\d{2})/);
+  return m ? m[1] : null;
+}
+
 // --------------------------------------------------------------------------
 // Persistencia (localStorage)
 // --------------------------------------------------------------------------
@@ -331,6 +336,7 @@ function consolidar(acta, periodo, checks) {
   );
 
   const fechaCarga = new Date().toISOString().slice(0, 10);
+  const anio = extraerAnio(acta.vigencia_contrato) || extraerAnio(acta.anio) || String(new Date().getFullYear());
   (acta.programas || []).forEach((p) => {
     const exigido = parseFloat(p.vr_exigido) || 0;
     const reconocido = parseFloat(p.vr_reconocido) || 0;
@@ -338,7 +344,7 @@ function consolidar(acta, periodo, checks) {
     const pct = exigido ? reconocido / exigido : null;
     STATE.detalle.push({
       Municipio: municipio, Contrato: contrato, Acta_No: actaNo, Periodo: periodo,
-      Meses: acta.meses || "", Empresa: acta.empresa || "", Nit: acta.nit || "", Regimen: acta.regimen || "",
+      Meses: acta.meses || "", Anio: anio, Empresa: acta.empresa || "", Nit: acta.nit || "", Regimen: acta.regimen || "",
       Programa: p.programa, Vr_Exigido: exigido, Vr_Reconocido: reconocido, Descuento: descuento,
       Pct_Cumplimiento: pct, Archivo_Origen: acta.archivo_origen || "", Fecha_Carga: fechaCarga,
     });
@@ -390,27 +396,23 @@ function rebuildResumen() {
   return { rows, periodos: periodosOrdenados };
 }
 
-// Agregado "caso extremo": todos los prestadores juntos, promediando cada
-// actividad a través de todos los municipios/contratos que la reporten.
-// Incluye montos totales y la lista de prestadores para que la vista no
-// quede reducida a un solo número por actividad.
+// Agregado "caso extremo": DUSAKAWI es el único prestador — esto junta
+// todos los municipios en una sola fila por actividad, promediando entre
+// todos los que la reporten.
 function rebuildResumenGeneral() {
   const porPrograma = {};
   const periodosPresentes = new Set();
   STATE.detalle.forEach((row) => {
     periodosPresentes.add(row.Periodo);
     if (!porPrograma[row.Programa]) {
-      porPrograma[row.Programa] = { periodos: {}, exigido: 0, reconocido: 0, descuento: 0, prestadores: new Set() };
+      porPrograma[row.Programa] = { periodos: {}, municipios: new Set() };
     }
     const p = porPrograma[row.Programa];
     if (!p.periodos[row.Periodo]) p.periodos[row.Periodo] = [];
     if (row.Pct_Cumplimiento !== null && row.Pct_Cumplimiento !== undefined) {
       p.periodos[row.Periodo].push(row.Pct_Cumplimiento);
     }
-    p.exigido += Number(row.Vr_Exigido) || 0;
-    p.reconocido += Number(row.Vr_Reconocido) || 0;
-    p.descuento += Number(row.Descuento) || 0;
-    p.prestadores.add(row.Municipio);
+    p.municipios.add(row.Municipio);
   });
 
   const periodosOrdenados = PERIODO_ORDEN.filter((p) => periodosPresentes.has(p)).concat(
@@ -421,11 +423,8 @@ function rebuildResumenGeneral() {
     const p = porPrograma[programa];
     const row = {
       Programa: programa,
-      Vr_Exigido: p.exigido,
-      Vr_Reconocido: p.reconocido,
-      Descuento: p.descuento,
-      Prestadores: [...p.prestadores].sort().join(", "),
-      NumPrestadores: p.prestadores.size,
+      Municipios: [...p.municipios].sort().join(", "),
+      NumMunicipios: p.municipios.size,
     };
     const valoresPromedio = [];
     periodosOrdenados.forEach((per) => {
@@ -439,6 +438,22 @@ function rebuildResumenGeneral() {
   });
 
   return { rows, periodos: periodosOrdenados };
+}
+
+// Etiqueta de columna para un periodo: "OTRO SI (ENE-FEB 2026)" en vez de
+// solo el código, usando los meses/año reales que traiga el acta.
+function mapaPeriodoInfo() {
+  const map = {};
+  STATE.detalle.forEach((row) => {
+    if (!map[row.Periodo]) map[row.Periodo] = { meses: row.Meses, anio: row.Anio };
+  });
+  return map;
+}
+function etiquetaPeriodo(periodo, info) {
+  if (!info) return periodo;
+  const meses = info.meses ? String(info.meses).replace(/\s*,\s*/g, "-") : "";
+  const partes = [meses, info.anio].filter(Boolean).join(" ");
+  return partes ? `${periodo} (${partes})` : periodo;
 }
 
 // --------------------------------------------------------------------------
@@ -507,18 +522,15 @@ function tablaResumenHtml(headerCols, filas) {
 // Tabla del consolidado general: además del % por periodo, muestra los
 // montos totales (Exigido/Reconocido/Descuento) y qué prestadores reportan
 // cada actividad, para que no sea solo un número suelto.
-function tablaResumenGeneralHtml(rows, periodos) {
-  const headerCols = ["Programa / Actividad", "Vr Exigido", "Vr Reconocido", "Descuento", ...periodos, "Promedio", "Prestadores que reportan"];
+function tablaResumenGeneralHtml(rows, periodos, infoPeriodos) {
+  const headerCols = ["Programa / Actividad", ...periodos.map((p) => etiquetaPeriodo(p, infoPeriodos[p])), "Promedio", "Municipios"];
   const thead = "<tr>" + headerCols.map((c) => `<th>${c}</th>`).join("") + "</tr>";
   const body = rows
     .map((r) => {
       let tds = `<td>${r.Programa}</td>`;
-      tds += `<td style="text-align:right; font-variant-numeric:tabular-nums;">${fmtMoney(r.Vr_Exigido)}</td>`;
-      tds += `<td style="text-align:right; font-variant-numeric:tabular-nums;">${fmtMoney(r.Vr_Reconocido)}</td>`;
-      tds += `<td style="text-align:right; font-variant-numeric:tabular-nums;">${fmtMoney(r.Descuento)}</td>`;
       periodos.forEach((p) => { tds += `<td class="pct-cell">${fmtPct(r[p])}</td>`; });
       tds += `<td class="pct-cell" style="background:#f7f9ff;">${fmtPct(r.Promedio)}</td>`;
-      tds += `<td class="hint" style="white-space:normal; max-width:220px;">${r.Prestadores} <span class="pill ok">${r.NumPrestadores}</span></td>`;
+      tds += `<td class="hint" style="white-space:normal; max-width:220px;">${r.Municipios} <span class="pill ok">${r.NumMunicipios}</span></td>`;
       return `<tr>${tds}</tr>`;
     })
     .join("");
@@ -575,18 +587,19 @@ function cargarResumen() {
     return;
   }
 
-  // Vista principal: UN SOLO consolidado, sin importar el municipio — una
-  // fila por actividad, promediando entre todos los prestadores y periodos.
+  // Vista principal: DUSAKAWI es el único prestador — un solo consolidado
+  // sin importar el municipio, una fila por actividad.
   const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
+  const infoPeriodos = mapaPeriodoInfo();
 
   let html = `<div class="resumen-grupo resumen-general">
-    <h3>🌐 Consolidado general (todos los prestadores)</h3>
-    <p class="hint">Una fila por actividad — el % es el promedio entre todos los municipios/contratos que la reportan (nunca supera 100%). Los montos son la suma de todos los prestadores.</p>
+    <h3>🌐 Consolidado general — DUSAKAWI IPSI (todos los municipios)</h3>
+    <p class="hint">Una fila por actividad — el % es el promedio entre todos los municipios que la reportan (nunca supera 100%).</p>
     ${graficoBarrasSVG(rowsGeneral)}
-    ${tablaResumenGeneralHtml(rowsGeneral, periodosGeneral)}
+    ${tablaResumenGeneralHtml(rowsGeneral, periodosGeneral, infoPeriodos)}
   </div>`;
 
-  // Detalle: desglose por prestador, para quien necesite ver el origen.
+  // Detalle: desglose por municipio, para quien necesite ver el origen.
   const grupos = new Map();
   rows.forEach((r) => {
     const key = r.Municipio + "||" + r.Contrato;
@@ -595,11 +608,11 @@ function cargarResumen() {
   });
 
   html += `<div class="resumen-detalle-toggle">
-    <button type="button" class="secondary" id="btn-toggle-detalle-prestador">▸ Ver desglose por prestador (${grupos.size})</button>
+    <button type="button" class="secondary" id="btn-toggle-detalle-prestador">▸ Ver desglose por municipio (${grupos.size})</button>
   </div>
   <div id="detalle-por-prestador" style="display:none; margin-top:16px;">`;
   grupos.forEach((g) => {
-    const headerCols = ["Programa", ...periodos, "Promedio"];
+    const headerCols = ["Programa", ...periodos.map((p) => etiquetaPeriodo(p, infoPeriodos[p])), "Promedio"];
     const filas = g.filas.map((r) => [r.Programa, ...periodos.map((p) => r[p]), r.Promedio]);
     html += `<div class="resumen-grupo">
       <h3>🏥 ${g.municipio} <span class="hint" style="display:inline; margin:0;">— Contrato ${g.contrato}</span></h3>
@@ -614,7 +627,7 @@ function cargarResumen() {
     const det = document.getElementById("detalle-por-prestador");
     const abierto = det.style.display !== "none";
     det.style.display = abierto ? "none" : "block";
-    btnToggle.textContent = `${abierto ? "▸" : "▾"} Ver desglose por prestador (${grupos.size})`;
+    btnToggle.textContent = `${abierto ? "▸" : "▾"} Ver desglose por municipio (${grupos.size})`;
   });
 }
 
@@ -653,6 +666,7 @@ const DETALLE_COLUMNAS = [
   { key: "Acta_No", label: "Nº Acta" },
   { key: "Periodo", label: "Periodo" },
   { key: "Meses", label: "Meses Evaluados" },
+  { key: "Anio", label: "Año" },
   { key: "Empresa", label: "Empresa" },
   { key: "Nit", label: "NIT" },
   { key: "Regimen", label: "Régimen" },
@@ -712,7 +726,7 @@ function descargarMaestro() {
 
   const detalleHeaders = DETALLE_COLUMNAS.map((c) => c.label);
   const detalleAoa = [detalleHeaders, ...STATE.detalle.map((r) => DETALLE_COLUMNAS.map((c) => r[c.key] ?? null))];
-  const wsDetalle = hojaConEstilo(detalleAoa, { columnasMoneda: [9, 10, 11], columnasPorcentaje: [12] });
+  const wsDetalle = hojaConEstilo(detalleAoa, { columnasMoneda: [10, 11, 12], columnasPorcentaje: [13] });
   XLSX.utils.book_append_sheet(wb, wsDetalle, "Detalle");
 
   const valHeaders = VALIDACIONES_COLUMNAS.map((c) => c.label);
@@ -720,26 +734,25 @@ function descargarMaestro() {
   const wsVal = hojaConEstilo(valAoa, {});
   XLSX.utils.book_append_sheet(wb, wsVal, "Validaciones");
 
-  // Resumen_General primero: es el consolidado principal (una fila por
-  // actividad, sin importar el municipio), con montos totales y qué
-  // prestadores la reportan — no solo un porcentaje suelto.
+  // Resumen_General primero: es el consolidado principal — DUSAKAWI es el
+  // único prestador, así que es una fila por actividad sin importar el
+  // municipio, con las fechas reales de cada periodo en el encabezado.
   const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
-  const resGeneralHeaders = ["Programa / Actividad", "Vr Exigido", "Vr Reconocido", "Descuento", ...periodosGeneral, "Promedio", "Nº Prestadores", "Prestadores"];
+  const infoPeriodosXlsx = mapaPeriodoInfo();
+  const resGeneralHeaders = ["Programa / Actividad", ...periodosGeneral.map((p) => etiquetaPeriodo(p, infoPeriodosXlsx[p])), "Promedio", "Nº Municipios", "Municipios"];
   const resGeneralAoa = [
     resGeneralHeaders,
     ...rowsGeneral.map((r) => [
-      r.Programa, r.Vr_Exigido, r.Vr_Reconocido, r.Descuento,
-      ...periodosGeneral.map((p) => r[p] ?? null), r.Promedio ?? null, r.NumPrestadores, r.Prestadores,
+      r.Programa, ...periodosGeneral.map((p) => r[p] ?? null), r.Promedio ?? null, r.NumMunicipios, r.Municipios,
     ]),
   ];
   const wsResGeneral = hojaConEstilo(resGeneralAoa, {
-    columnasMoneda: [1, 2, 3],
-    columnasPorcentaje: periodosGeneral.map((_, i) => 4 + i).concat([4 + periodosGeneral.length]),
+    columnasPorcentaje: periodosGeneral.map((_, i) => 1 + i).concat([1 + periodosGeneral.length]),
   });
   XLSX.utils.book_append_sheet(wb, wsResGeneral, "Resumen_General");
 
   const { rows, periodos } = rebuildResumen();
-  const resHeaders = ["Municipio", "Nº Contrato", "Programa / Actividad", ...periodos, "Promedio"];
+  const resHeaders = ["Municipio", "Nº Contrato", "Programa / Actividad", ...periodos.map((p) => etiquetaPeriodo(p, infoPeriodosXlsx[p])), "Promedio"];
   const resAoa = [
     resHeaders,
     ...rows.map((r) => [r.Municipio, r.Contrato, r.Programa, ...periodos.map((p) => r[p] ?? null), r.Promedio ?? null]),
@@ -826,6 +839,7 @@ function crearTarjetaPDF(file) {
         <div><label>Nº Acta</label><input type="text" name="acta_no" required placeholder="Ej. 20013-061-PMT-5"></div>
         <div><label>Periodo${periodoDetectado ? ' <span class="pill ok">auto</span>' : ""}</label><select name="periodo" class="periodo-select" required></select></div>
         <div><label>Meses evaluados</label><input type="text" name="meses" placeholder="Ej. ENE,FEB"></div>
+        <div><label>Año</label><input type="text" name="anio" value="${periodoDetectado ? (extraerAnio(ruta) || new Date().getFullYear()) : new Date().getFullYear()}"></div>
         <div><label>Empresa</label><input type="text" name="empresa" value="DUSAKAWI IPSI"></div>
         <div><label>NIT</label><input type="text" name="nit"></div>
         <div><label>Régimen</label><input type="text" name="regimen" value="SUBSIDIADO"></div>
@@ -880,6 +894,7 @@ function crearTarjetaPDF(file) {
       contrato: fd.get("contrato"),
       acta_no: fd.get("acta_no"),
       meses: fd.get("meses"),
+      anio: fd.get("anio"),
       empresa: fd.get("empresa"),
       nit: fd.get("nit"),
       regimen: fd.get("regimen"),
