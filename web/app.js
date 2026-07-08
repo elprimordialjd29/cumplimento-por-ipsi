@@ -29,6 +29,21 @@ const PROGRAMAS_TIPICOS = [
 const STORAGE_KEY = "dusakawi_actas_estado_v1";
 const STATE = { detalle: [], validaciones: [] };
 
+// Ruta por defecto para el consolidado por prestador: promoción y
+// mantenimiento por ciclo de vida + materno perinatal. Sin PAI, atención
+// posparto, demanda inducida ni ruta cardiovascular (se pueden marcar
+// aparte si se quieren incluir).
+const ACTIVIDADES_RUTA_DEFECTO = new Set([
+  "INDIVIDUALES PARA NIÑOS Y NIÑAS EN PRIMERA INFANCIA 1M - 5A",
+  "INDIVIDUALES PARA NIÑOS Y NIÑAS EN INFANCIA 6 - 11 AÑOS",
+  "INDIVIDUALES PARA LOS ADOLESCENTES 12 - 17 AÑOS",
+  "INDIVIDUALES PARA LOS JOVENES 18 - 28 AÑOS",
+  "INDIVIDUALES PARA LOS ADULTOS 29 - 59 AÑOS",
+  "INDIVIDUALES PARA LOS ADULTOS MAYORES 60 A 80 Y MAS",
+  "MATERNO PERINATAL",
+]);
+let actividadesSeleccionadas = new Set(ACTIVIDADES_RUTA_DEFECTO);
+
 // Ordena las actividades como vienen en el acta original (PROGRAMAS_TIPICOS),
 // no alfabéticamente. Cualquier actividad que no esté en la lista típica
 // queda al final, ordenada alfabéticamente entre sí.
@@ -414,10 +429,11 @@ function rebuildResumen() {
 // actividades juntas), por periodo y general, más Cumple/No cumple (>=80%).
 // Pensado para ver de un vistazo decenas de prestadores con varios
 // contratos cada uno, sin desglosar actividad por actividad.
-function rebuildConsolidadoPrestadores() {
+function rebuildConsolidadoPrestadores(actividadesSel) {
   const grupos = {};
   const periodosPresentes = new Set();
   STATE.detalle.forEach((row) => {
+    if (actividadesSel && !actividadesSel.has(row.Programa)) return;
     periodosPresentes.add(row.Periodo);
     const key = row.Municipio + "||" + row.Contrato;
     if (!grupos[key]) {
@@ -456,6 +472,42 @@ function rebuildConsolidadoPrestadores() {
     });
 
   return { rows, periodos: periodosOrdenados };
+}
+
+// Consolidado semaforizado POR PRESTADOR (Empresa) — junta todos los
+// municipios/contratos de una misma empresa en una sola fila con un solo %
+// (ej. "DUSAKAWI 90%", "PALAIMA 100%"), usando solo las actividades
+// marcadas en el checklist.
+function rebuildConsolidadoPorEmpresa(actividadesSel) {
+  const porEmpresa = {};
+  STATE.detalle.forEach((row) => {
+    if (actividadesSel && !actividadesSel.has(row.Programa)) return;
+    const key = row.Empresa || "(sin empresa)";
+    if (!porEmpresa[key]) porEmpresa[key] = { empresa: key, valores: [], municipios: new Set() };
+    if (row.Pct_Cumplimiento !== null && row.Pct_Cumplimiento !== undefined) {
+      porEmpresa[key].valores.push(row.Pct_Cumplimiento);
+    }
+    porEmpresa[key].municipios.add(row.Municipio);
+  });
+
+  return Object.values(porEmpresa)
+    .sort((a, b) => a.empresa.localeCompare(b.empresa))
+    .map((e) => {
+      const promedio = e.valores.length ? e.valores.reduce((a, b) => a + b, 0) / e.valores.length : null;
+      return {
+        Empresa: e.empresa,
+        Municipios: [...e.municipios].sort().join(", "),
+        NumMunicipios: e.municipios.size,
+        Promedio: promedio,
+        Estado: promedio === null ? "" : promedio >= 0.8 ? "Cumple" : "No cumple",
+      };
+    });
+}
+
+function estadisticaCumplimiento(rowsEmpresa) {
+  const total = rowsEmpresa.filter((r) => r.Estado).length;
+  const cumplen = rowsEmpresa.filter((r) => r.Estado === "Cumple").length;
+  return { total, cumplen, noCumplen: total - cumplen };
 }
 
 // Agregado "caso extremo": DUSAKAWI es el único prestador — esto junta
@@ -621,6 +673,45 @@ function tablaConsolidadoPrestadoresHtml(rows, periodos, infoPeriodos) {
   return `<div class="table-wrap"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`;
 }
 
+function tablaPorEmpresaHtml(rows) {
+  const body = rows
+    .map((r) => {
+      const estadoCls = r.Estado === "Cumple" ? "ok" : r.Estado === "No cumple" ? "error" : "";
+      return `<tr>
+        <td>${r.Empresa}</td>
+        <td class="hint" style="white-space:normal; max-width:260px;">${r.Municipios} <span class="pill ok">${r.NumMunicipios}</span></td>
+        <td class="pct-cell"><strong>${fmtPct(r.Promedio)}</strong></td>
+        <td>${r.Estado ? `<span class="pill ${estadoCls}">${r.Estado}</span>` : "-"}</td>
+      </tr>`;
+    })
+    .join("");
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>Prestador (Empresa)</th><th>Municipios</th><th>Promedio</th><th>Estado</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+}
+
+function tarjetasEstadisticaHtml(stat) {
+  return `<div class="stat-cards">
+    <div class="stat-card"><div class="stat-num">${stat.total}</div><div class="stat-label">Prestadores cargados</div></div>
+    <div class="stat-card stat-ok"><div class="stat-num">${stat.cumplen}</div><div class="stat-label">✅ Cumplen (≥80%)</div></div>
+    <div class="stat-card stat-bad"><div class="stat-num">${stat.noCumplen}</div><div class="stat-label">⚠️ No cumplen</div></div>
+  </div>`;
+}
+
+// Checklist de actividades que entran al consolidado por prestador/empresa.
+function checklistActividadesHtml() {
+  const items = PROGRAMAS_TIPICOS.map((p, i) => `
+    <label class="check-item">
+      <input type="checkbox" class="chk-actividad" data-idx="${i}" ${actividadesSeleccionadas.has(p) ? "checked" : ""}>
+      <span>${p}</span>
+    </label>`).join("");
+  return `<div class="resumen-grupo">
+    <h3>🗂️ Actividades incluidas en el consolidado por prestador</h3>
+    <p class="hint">Marca qué actividades cuentan para el % general de cada prestador (abajo). Por defecto viene la ruta de promoción y mantenimiento; PAI, atención posparto, demanda inducida y ruta cardiovascular quedan fuera salvo que las marques.</p>
+    <div class="checklist-actividades">${items}</div>
+  </div>`;
+}
+
 function escapeXml(s) {
   return String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
 }
@@ -654,7 +745,7 @@ function svgAPng(svgString, width, height, escala = 2) {
 // Inserta una imagen PNG como dibujo flotante en una hoja del libro, ya
 // convertido a zip (JSZip). Ubica el borde superior izquierdo en la fila
 // `filaAncla` (0-based) de la hoja llamada `sheetName`.
-async function insertarImagenEnHoja(zip, sheetName, pngBytes, pxWidth, pxHeight, filaAncla) {
+async function insertarImagenEnHoja(zip, sheetName, pngBytes, pxWidth, pxHeight, filaAncla, indice = 1) {
   const parser = new DOMParser();
 
   const wbXml = await zip.file("xl/workbook.xml").async("string");
@@ -670,20 +761,20 @@ async function insertarImagenEnHoja(zip, sheetName, pngBytes, pxWidth, pxHeight,
   const sheetFileName = rel.getAttribute("Target").split("/").pop();
   const sheetXmlPath = `xl/worksheets/${sheetFileName}`;
 
-  zip.file("xl/media/image1.png", pngBytes);
+  zip.file(`xl/media/image${indice}.png`, pngBytes);
 
   const emu = 9525; // EMU por pixel
   const cx = Math.round(pxWidth * emu);
   const cy = Math.round(pxHeight * emu);
   zip.file(
-    "xl/drawings/drawing1.xml",
+    `xl/drawings/drawing${indice}.xml`,
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
 <xdr:oneCellAnchor>
 <xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${filaAncla}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
 <xdr:ext cx="${cx}" cy="${cy}"/>
 <xdr:pic>
-<xdr:nvPicPr><xdr:cNvPr id="1" name="GraficaCumplimiento"/><xdr:cNvPicPr/></xdr:nvPicPr>
+<xdr:nvPicPr><xdr:cNvPr id="${indice}" name="GraficaCumplimiento${indice}"/><xdr:cNvPicPr/></xdr:nvPicPr>
 <xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
 <xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
 </xdr:pic>
@@ -692,17 +783,17 @@ async function insertarImagenEnHoja(zip, sheetName, pngBytes, pxWidth, pxHeight,
 </xdr:wsDr>`
   );
   zip.file(
-    "xl/drawings/_rels/drawing1.xml.rels",
+    `xl/drawings/_rels/drawing${indice}.xml.rels`,
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image${indice}.png"/>
 </Relationships>`
   );
   zip.file(
     `xl/worksheets/_rels/${sheetFileName}.rels`,
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${indice}.xml"/>
 </Relationships>`
   );
 
@@ -714,7 +805,10 @@ async function insertarImagenEnHoja(zip, sheetName, pngBytes, pxWidth, pxHeight,
   if (!ctXml.includes('Extension="png"')) {
     ctXml = ctXml.replace("</Types>", '<Default Extension="png" ContentType="image/png"/></Types>');
   }
-  ctXml = ctXml.replace("</Types>", '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>');
+  const drawingPart = `/xl/drawings/drawing${indice}.xml`;
+  if (!ctXml.includes(drawingPart)) {
+    ctXml = ctXml.replace("</Types>", `<Override PartName="${drawingPart}" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>`);
+  }
   zip.file("[Content_Types].xml", ctXml);
   return true;
 }
@@ -782,12 +876,32 @@ function cargarResumen() {
     ${tablaResumenGeneralHtml(rowsGeneral, periodosGeneral, infoPeriodos)}
   </div>`;
 
+  // Checklist de actividades para los dos consolidados por prestador.
+  html += checklistActividadesHtml();
+
+  // Consolidado semaforizado POR EMPRESA (ej. "DUSAKAWI 90%", "PALAIMA 100%").
+  const rowsEmpresa = rebuildConsolidadoPorEmpresa(actividadesSeleccionadas);
+  const statEmpresa = estadisticaCumplimiento(rowsEmpresa);
+  const filasParaGrafico = rowsEmpresa.map((r) => ({ Programa: r.Empresa, Promedio: r.Promedio }));
+  html += `<div class="resumen-grupo resumen-general">
+    <h3>🚦 Consolidado por Prestador — Semaforizado</h3>
+    <p class="hint">Cada prestador (empresa), con el promedio de las actividades marcadas arriba en todos sus municipios/contratos.</p>
+    ${tarjetasEstadisticaHtml(statEmpresa)}
+    ${graficoBarrasSVG(filasParaGrafico)}
+    <p class="leyenda-umbrales">
+      <span class="pct-pill pct-pill-ok">≥ 90%</span> Excelente &nbsp;
+      <span class="pct-pill pct-pill-mid">≥ 80%</span> Cumple &nbsp;
+      <span class="pct-pill pct-pill-bad">&lt; 80%</span> No cumple
+    </p>
+    ${tablaPorEmpresaHtml(rowsEmpresa)}
+  </div>`;
+
   // Consolidado por prestador/contrato: toda la ruta en un solo % por cada
   // uno (pensado para ver de un vistazo decenas de prestadores).
-  const { rows: rowsPrestadores, periodos: periodosPrestadores } = rebuildConsolidadoPrestadores();
+  const { rows: rowsPrestadores, periodos: periodosPrestadores } = rebuildConsolidadoPrestadores(actividadesSeleccionadas);
   html += `<div class="resumen-grupo">
-    <h3>📋 Consolidado de cumplimiento por prestador</h3>
-    <p class="hint">Promedio de TODA la ruta (todas las actividades juntas) por cada prestador/contrato — para ver de un vistazo cuáles cumplen. Cumple si el promedio general es ≥ 80%.</p>
+    <h3>📋 Consolidado de cumplimiento por prestador y contrato</h3>
+    <p class="hint">Igual que arriba, pero desglosado por cada municipio/contrato en vez de agrupado por empresa.</p>
     ${tablaConsolidadoPrestadoresHtml(rowsPrestadores, periodosPrestadores, infoPeriodos)}
   </div>`;
 
@@ -820,6 +934,15 @@ function cargarResumen() {
     const abierto = det.style.display !== "none";
     det.style.display = abierto ? "none" : "block";
     btnToggle.textContent = `${abierto ? "▸" : "▾"} Ver desglose por municipio (${grupos.size})`;
+  });
+
+  container.querySelectorAll(".chk-actividad").forEach((chk) => {
+    chk.addEventListener("change", () => {
+      const programa = PROGRAMAS_TIPICOS[parseInt(chk.dataset.idx, 10)];
+      if (chk.checked) actividadesSeleccionadas.add(programa);
+      else actividadesSeleccionadas.delete(programa);
+      cargarResumen();
+    });
   });
 }
 
@@ -943,9 +1066,20 @@ async function descargarMaestro() {
   });
   XLSX.utils.book_append_sheet(wb, wsResGeneral, "Resumen_General");
 
+  // Consolidado semaforizado POR EMPRESA (ej. "DUSAKAWI 90%"), solo con las
+  // actividades marcadas en el checklist de la app.
+  const rowsEmpresaXlsx = rebuildConsolidadoPorEmpresa(actividadesSeleccionadas);
+  const empHeaders = ["Prestador (Empresa)", "Municipios", "Nº Municipios", "Promedio General", "Estado"];
+  const empAoa = [
+    empHeaders,
+    ...rowsEmpresaXlsx.map((r) => [r.Empresa, r.Municipios, r.NumMunicipios, r.Promedio ?? null, r.Estado]),
+  ];
+  const wsEmp = hojaConEstilo(empAoa, { columnasPorcentaje: [3] });
+  XLSX.utils.book_append_sheet(wb, wsEmp, "Consolidado_Empresas");
+
   // Consolidado por prestador/contrato: toda la ruta en un solo % por cada
   // uno, con Cumple/No cumple — pensado para decenas de prestadores.
-  const { rows: rowsPrestadores, periodos: periodosPrestadores } = rebuildConsolidadoPrestadores();
+  const { rows: rowsPrestadores, periodos: periodosPrestadores } = rebuildConsolidadoPrestadores(actividadesSeleccionadas);
   const presHeaders = ["Municipio", "Nº Contrato", "Prestador (Empresa)", ...periodosPrestadores.map((p) => etiquetaPeriodo(p, infoPeriodosXlsx[p])), "Promedio General", "Estado"];
   const presAoa = [
     presHeaders,
@@ -982,7 +1116,17 @@ async function descargarMaestro() {
     const pngBytes = await svgAPng(svgChart, chartW, chartH);
     const zip = await JSZip.loadAsync(bytesBase);
     const filaAncla = rowsGeneral.length + 2;
-    await insertarImagenEnHoja(zip, "Resumen_General", pngBytes, chartW, chartH, filaAncla);
+    await insertarImagenEnHoja(zip, "Resumen_General", pngBytes, chartW, chartH, filaAncla, 1);
+
+    // Gráfica semaforizada por empresa, en su propia hoja.
+    const svgChartEmp = graficoBarrasSVG(rowsEmpresaXlsx.map((r) => ({ Programa: r.Empresa, Promedio: r.Promedio })));
+    const dimsEmp = svgChartEmp.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+    const chartWEmp = dimsEmp ? parseFloat(dimsEmp[1]) : 700;
+    const chartHEmp = dimsEmp ? parseFloat(dimsEmp[2]) : 340;
+    const pngBytesEmp = await svgAPng(svgChartEmp, chartWEmp, chartHEmp);
+    const filaAnclaEmp = rowsEmpresaXlsx.length + 2;
+    await insertarImagenEnHoja(zip, "Consolidado_Empresas", pngBytesEmp, chartWEmp, chartHEmp, filaAnclaEmp, 2);
+
     const finalBlob = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(finalBlob);
     const a = document.createElement("a");

@@ -258,6 +258,43 @@ tbody tr:hover td { background: #f7f9ff; }
 .leyenda-umbrales { text-align: center; font-size: 0.85rem; color: var(--texto-suave); margin: 4px 0 22px; }
 .leyenda-umbrales .pct-pill { margin-right: 4px; }
 
+.checklist-actividades {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px 16px;
+  margin-top: 12px;
+}
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--texto);
+  padding: 6px 10px;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: #fbfcfe;
+  cursor: pointer;
+}
+.check-item input { width: auto; margin: 0; flex: none; }
+
+.stat-cards { display: flex; gap: 14px; margin: 16px 0 24px; flex-wrap: wrap; }
+.stat-card {
+  flex: 1;
+  min-width: 150px;
+  text-align: center;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: #f4f6fb;
+  border: 1px solid var(--borde);
+}
+.stat-num { font-size: 1.9rem; font-weight: 800; color: var(--brand-darker); }
+.stat-label { font-size: 0.8rem; color: var(--texto-suave); margin-top: 2px; }
+.stat-card.stat-ok { background: var(--verde-bg); }
+.stat-card.stat-ok .stat-num { color: var(--verde); }
+.stat-card.stat-bad { background: var(--rojo-bg); }
+.stat-card.stat-bad .stat-num { color: var(--rojo); }
+
 .staging-item { border: 1px solid var(--borde); border-radius: var(--radius); padding: 18px; margin-top: 16px; background: #fbfcfe; }
 .staging-item h3 { color: var(--brand-darker); }
 .select-inline { width: auto; display: inline-block; padding: 3px 8px; font-weight: 700; font-size: 0.85rem; }
