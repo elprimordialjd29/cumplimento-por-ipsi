@@ -406,7 +406,7 @@ function rebuildResumenGeneral() {
   STATE.detalle.forEach((row) => {
     periodosPresentes.add(row.Periodo);
     if (!porPrograma[row.Programa]) {
-      porPrograma[row.Programa] = { periodos: {}, municipios: new Set() };
+      porPrograma[row.Programa] = { periodos: {}, municipios: new Set(), prestadores: new Set() };
     }
     const p = porPrograma[row.Programa];
     if (!p.periodos[row.Periodo]) p.periodos[row.Periodo] = [];
@@ -414,6 +414,7 @@ function rebuildResumenGeneral() {
       p.periodos[row.Periodo].push(row.Pct_Cumplimiento);
     }
     p.municipios.add(row.Municipio);
+    if (row.Empresa) p.prestadores.add(row.Empresa);
   });
 
   const periodosOrdenados = PERIODO_ORDEN.filter((p) => periodosPresentes.has(p)).concat(
@@ -426,6 +427,7 @@ function rebuildResumenGeneral() {
       Programa: programa,
       Municipios: [...p.municipios].sort().join(", "),
       NumMunicipios: p.municipios.size,
+      Prestadores: [...p.prestadores].sort().join(", "),
     };
     const valoresPromedio = [];
     periodosOrdenados.forEach((per) => {
@@ -524,7 +526,7 @@ function tablaResumenHtml(headerCols, filas) {
 // montos totales (Exigido/Reconocido/Descuento) y qué prestadores reportan
 // cada actividad, para que no sea solo un número suelto.
 function tablaResumenGeneralHtml(rows, periodos, infoPeriodos) {
-  const headerCols = ["Programa / Actividad", ...periodos.map((p) => etiquetaPeriodo(p, infoPeriodos[p])), "Promedio", "Municipios"];
+  const headerCols = ["Programa / Actividad", ...periodos.map((p) => etiquetaPeriodo(p, infoPeriodos[p])), "Promedio", "Municipios", "Prestador (Empresa)"];
   const thead = "<tr>" + headerCols.map((c) => `<th>${c}</th>`).join("") + "</tr>";
   const body = rows
     .map((r) => {
@@ -532,6 +534,7 @@ function tablaResumenGeneralHtml(rows, periodos, infoPeriodos) {
       periodos.forEach((p) => { tds += `<td class="pct-cell">${fmtPct(r[p])}</td>`; });
       tds += `<td class="pct-cell" style="background:#f7f9ff;">${fmtPct(r.Promedio)}</td>`;
       tds += `<td class="hint" style="white-space:normal; max-width:220px;">${r.Municipios} <span class="pill ok">${r.NumMunicipios}</span></td>`;
+      tds += `<td class="hint" style="white-space:normal; max-width:220px;">${r.Prestadores || "-"}</td>`;
       return `<tr>${tds}</tr>`;
     })
     .join("");
@@ -740,11 +743,11 @@ function descargarMaestro() {
   // municipio, con las fechas reales de cada periodo en el encabezado.
   const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
   const infoPeriodosXlsx = mapaPeriodoInfo();
-  const resGeneralHeaders = ["Programa / Actividad", ...periodosGeneral.map((p) => etiquetaPeriodo(p, infoPeriodosXlsx[p])), "Promedio", "Nº Municipios", "Municipios"];
+  const resGeneralHeaders = ["Programa / Actividad", ...periodosGeneral.map((p) => etiquetaPeriodo(p, infoPeriodosXlsx[p])), "Promedio", "Nº Municipios", "Municipios", "Prestador (Empresa)"];
   const resGeneralAoa = [
     resGeneralHeaders,
     ...rowsGeneral.map((r) => [
-      r.Programa, ...periodosGeneral.map((p) => r[p] ?? null), r.Promedio ?? null, r.NumMunicipios, r.Municipios,
+      r.Programa, ...periodosGeneral.map((p) => r[p] ?? null), r.Promedio ?? null, r.NumMunicipios, r.Municipios, r.Prestadores,
     ]),
   ];
   const wsResGeneral = hojaConEstilo(resGeneralAoa, {
