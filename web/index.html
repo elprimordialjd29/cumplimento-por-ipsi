@@ -40,20 +40,20 @@
   <section id="tab-xlsx" class="tab active">
     <div class="card">
       <h2>Cargar acta(s) en Excel</h2>
-      <p class="hint">Puedes seleccionar varios archivos .xlsx a la vez (ej. todos los municipios de un mismo periodo). Se extraen automáticamente el encabezado (Nº Acta, Nº Contrato, Empresa, Municipio) y la tabla de Programa / Vr Exigido / Vr Reconocido / Descuento de cada uno.</p>
-      <form id="form-xlsx">
-        <label>Archivos .xlsx</label>
-        <div class="dropzone" id="dropzone-xlsx" tabindex="0">
-          <div class="dropzone-icon">📂</div>
-          <div class="dropzone-text"><strong>Arrastra tus archivos aquí</strong> o haz clic para seleccionarlos</div>
-          <div class="dropzone-filelist" id="filelist-xlsx"></div>
-          <input type="file" name="file" id="file-xlsx" accept=".xlsx" multiple required hidden>
-        </div>
-        <label>Periodo <span class="label-note">(se aplica a todos los archivos seleccionados)</span></label>
-        <select name="periodo" id="periodo-xlsx" required></select>
-        <button class="primary" type="submit">Validar y consolidar todos</button>
-      </form>
-      <div id="resultado-xlsx"></div>
+      <p class="hint">Cada archivo se procesa al soltarlo — no hace falta un botón de "enviar", y nada de lo ya cargado se pierde al seguir agregando más. El periodo (OTRO SI, 1-TRIM, etc.) se detecta automáticamente por el nombre de la carpeta o del archivo; si no se detecta, se usa el periodo por defecto de abajo.</p>
+      <label>Archivos .xlsx</label>
+      <div class="dropzone" id="dropzone-xlsx" tabindex="0">
+        <div class="dropzone-icon">📂</div>
+        <div class="dropzone-text"><strong>Arrastra tus archivos aquí</strong> o haz clic para seleccionarlos</div>
+        <input type="file" id="file-xlsx" accept=".xlsx" multiple hidden>
+      </div>
+      <button type="button" class="secondary" id="btn-folder-xlsx" style="margin-top:10px;">📁 O selecciona una carpeta completa (incluye subcarpetas)</button>
+      <input type="file" id="folder-xlsx" webkitdirectory multiple hidden>
+
+      <label>Periodo por defecto <span class="label-note">(solo si no se detecta automáticamente)</span></label>
+      <select id="periodo-xlsx"></select>
+
+      <div id="resultado-xlsx" style="margin-top:10px;"></div>
     </div>
   </section>
 
@@ -61,12 +61,14 @@
   <section id="tab-manual" class="tab">
     <div class="card">
       <h2>Cargar acta(s) en PDF</h2>
-      <p class="hint">Sube uno o varios PDF. Como estos escaneos no tienen texto seleccionable, la app no adivina los montos por ti (para no arriesgar un error de lectura en cifras financieras) — pero cada uno se muestra aquí mismo, al lado de su propio formulario, para que transcribas sin salir de la herramienta.</p>
+      <p class="hint">Sube uno o varios PDF. El municipio, el número de contrato y el periodo se intentan adivinar de la carpeta/nombre del archivo (verifica que queden correctos). Como estos escaneos no tienen texto seleccionable, la app no adivina los montos por ti (para no arriesgar un error de lectura en cifras financieras) — pero cada uno se muestra aquí mismo, al lado de su propio formulario, para que transcribas sin salir de la herramienta.</p>
       <div class="dropzone" id="dropzone-pdfs" tabindex="0">
         <div class="dropzone-icon">📄</div>
         <div class="dropzone-text"><strong>Arrastra tus PDF aquí</strong> o haz clic para seleccionarlos</div>
         <input type="file" id="input-pdfs" accept=".pdf" multiple hidden>
       </div>
+      <button type="button" class="secondary" id="btn-folder-pdfs" style="margin-top:10px;">📁 O selecciona una carpeta completa (incluye subcarpetas)</button>
+      <input type="file" id="folder-pdfs" webkitdirectory multiple hidden>
       <div id="pdf-items"></div>
     </div>
   </section>

@@ -31,12 +31,53 @@ const PROGRAMAS_TIPICOS = [
 const STORAGE_KEY = "dusakawi_actas_estado_v1";
 const STATE = { detalle: [], validaciones: [] };
 
+// Municipios/prestadores conocidos, para adivinar el campo a partir de la
+// ruta de carpeta o el nombre del archivo (más específico primero).
+const MUNICIPIOS_CONOCIDOS = [
+  "SAN JUAN DEL CESAR", "SAN JUAN",
+  "AGUSTIN CODAZZI", "CODAZZI",
+  "LA PAZ",
+  "BECERRIL",
+  "VALLEDUPAR",
+  "RIOHACHA",
+];
+
 function norm(v) {
   if (v === null || v === undefined) return "";
   return String(v).trim();
 }
 function fmtMoney(v) {
   return (v || 0).toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// --------------------------------------------------------------------------
+// Detección automática de periodo / municipio / contrato a partir de la ruta
+// (carpeta de origen) o el nombre del archivo, para no pedirle al usuario
+// que los seleccione a mano en cada carga.
+// --------------------------------------------------------------------------
+function detectarPeriodoDesdeTexto(texto) {
+  const upper = (texto || "").toUpperCase();
+  if (upper.includes("OTRO SI") || upper.includes("OTROSI")) return "OTRO SI";
+  const m = upper.match(/(\d)\s*-?\s*TRIM/);
+  if (m) return `${m[1]}-TRIM`;
+  return null;
+}
+
+function detectarMunicipioDesdeTexto(texto) {
+  const upper = (texto || "").toUpperCase();
+  for (const m of MUNICIPIOS_CONOCIDOS) {
+    if (upper.includes(m)) return m === "SAN JUAN" ? "SAN JUAN DEL CESAR" : m === "CODAZZI" ? "AGUSTIN CODAZZI" : m;
+  }
+  return null;
+}
+
+function detectarContratoDesdeTexto(texto) {
+  const m = (texto || "").match(/\b(\d{4,6}-\d{1,4}(?:-[A-Z]{2,5})+)\b/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
+function rutaArchivo(file) {
+  return file.webkitRelativePath || file.name;
 }
 
 // --------------------------------------------------------------------------
@@ -211,6 +252,29 @@ function validar(acta) {
   return checks;
 }
 
+const MESES_POR_PERIODO = {
+  "OTRO SI": ["ENE", "FEB"],
+  "1-TRIM": ["ENE", "FEB", "MAR"],
+  "2-TRIM": ["ABR", "MAY", "JUN"],
+  "3-TRIM": ["JUL", "AGO", "SEP"],
+  "4-TRIM": ["OCT", "NOV", "DIC"],
+};
+
+// Compara los meses que el propio documento dice haber evaluado contra el
+// periodo asignado (detectado o elegido) — atrapa el caso de un archivo
+// guardado o rotulado en la carpeta/periodo equivocado.
+function checkConsistenciaMeses(acta, periodo) {
+  const esperado = MESES_POR_PERIODO[periodo];
+  const meses = (acta.meses || "").toUpperCase();
+  if (!esperado || !meses) return null;
+  const ok = esperado.some((m) => meses.includes(m));
+  return {
+    chequeo: "Meses del acta coinciden con el periodo asignado",
+    resultado: ok ? "OK" : "ERROR",
+    detalle: `periodo='${periodo}' meses_acta='${acta.meses}' (se esperaba alguno de: ${esperado.join(", ")})`,
+  };
+}
+
 // --------------------------------------------------------------------------
 // Consolidacion (en memoria + localStorage)
 // --------------------------------------------------------------------------
@@ -294,12 +358,13 @@ function renderResultado(container, payload) {
     container.innerHTML = `<div class="msg error">${payload.error}</div>`;
     return;
   }
-  const { acta, checks, periodo } = payload;
+  const { acta, checks, periodo, periodoAuto } = payload;
   const nErr = checks.filter((c) => c.resultado === "ERROR").length;
+  const periodoTxt = periodoAuto ? `${periodo} <span class="pill ok" style="margin-left:4px;">detectado automático</span>` : periodo;
   const resumenMsg =
     nErr === 0
-      ? `<div class="msg ok">✔ ${acta.municipio} — Contrato ${acta.contrato} — Acta ${acta.acta_no} — periodo ${periodo}: ${checks.length} chequeos, todos OK.</div>`
-      : `<div class="msg error">⚠ ${acta.municipio} — Contrato ${acta.contrato} — Acta ${acta.acta_no} — periodo ${periodo}: ${nErr} de ${checks.length} chequeos con ERROR.</div>`;
+      ? `<div class="msg ok">✔ ${acta.municipio} — Contrato ${acta.contrato} — Acta ${acta.acta_no} — periodo ${periodoTxt}: ${checks.length} chequeos, todos OK.</div>`
+      : `<div class="msg error">⚠ ${acta.municipio} — Contrato ${acta.contrato} — Acta ${acta.acta_no} — periodo ${periodoTxt}: ${nErr} de ${checks.length} chequeos con ERROR.</div>`;
 
   const filas = checks
     .map(
@@ -469,17 +534,23 @@ function mostrarPDFEmbebido(file, container) {
 }
 
 function crearTarjetaPDF(file) {
+  const ruta = rutaArchivo(file);
+  const municipioDetectado = detectarMunicipioDesdeTexto(ruta) || "";
+  const contratoDetectado = detectarContratoDesdeTexto(ruta) || "";
+  const periodoDetectado = detectarPeriodoDesdeTexto(ruta);
+
   const card = document.createElement("div");
   card.className = "pdf-card";
   card.innerHTML = `
     <h3 style="margin-top:0;">${file.name}</h3>
+    ${ruta !== file.name ? `<div class="hint" style="margin-top:-6px;">📁 ${ruta}</div>` : ""}
     <div class="pdf-pages"><div class="empty">Cargando previsualización...</div></div>
     <form class="pdf-form">
       <div class="grid2">
-        <div><label>Municipio</label><input type="text" name="municipio" required></div>
-        <div><label>Nº Contrato</label><input type="text" name="contrato" required placeholder="Ej. 20013-061-PMT"></div>
+        <div><label>Municipio${municipioDetectado ? ' <span class="pill ok">auto</span>' : ""}</label><input type="text" name="municipio" value="${municipioDetectado}" required></div>
+        <div><label>Nº Contrato${contratoDetectado ? ' <span class="pill ok">auto</span>' : ""}</label><input type="text" name="contrato" value="${contratoDetectado}" required placeholder="Ej. 20013-061-PMT"></div>
         <div><label>Nº Acta</label><input type="text" name="acta_no" required placeholder="Ej. 20013-061-PMT-5"></div>
-        <div><label>Periodo</label><select name="periodo" class="periodo-select" required></select></div>
+        <div><label>Periodo${periodoDetectado ? ' <span class="pill ok">auto</span>' : ""}</label><select name="periodo" class="periodo-select" required></select></div>
         <div><label>Meses evaluados</label><input type="text" name="meses" placeholder="Ej. ENE,FEB"></div>
         <div><label>Empresa</label><input type="text" name="empresa" value="DUSAKAWI IPSI"></div>
         <div><label>NIT</label><input type="text" name="nit"></div>
@@ -509,6 +580,7 @@ function crearTarjetaPDF(file) {
 
   const sel = card.querySelector(".periodo-select");
   sel.innerHTML = Object.entries(PERIODO_MESES).map(([k, v]) => `<option value="${k}">${k} (${v})</option>`).join("");
+  if (periodoDetectado) sel.value = periodoDetectado;
 
   const tbody = card.querySelector(".tabla-programas-pdf tbody");
   PROGRAMAS_TIPICOS.forEach((nombre) => agregarFilaProgramaEn(tbody, { programa: nombre, vr_exigido: "", vr_reconocido: "", descuento: "" }));
@@ -547,8 +619,10 @@ function crearTarjetaPDF(file) {
     };
     const periodo = fd.get("periodo");
     const checks = validar(acta);
+    const chkMeses = checkConsistenciaMeses(acta, periodo);
+    if (chkMeses) checks.push(chkMeses);
     consolidar(acta, periodo, checks);
-    renderResultado(form.querySelector(".resultado-pdf"), { acta, checks, periodo });
+    renderResultado(form.querySelector(".resultado-pdf"), { acta, checks, periodo, periodoAuto: periodo === periodoDetectado });
   });
 
   mostrarPDFEmbebido(file, card.querySelector(".pdf-pages"));
@@ -579,19 +653,68 @@ function setupDropzone(zoneEl, inputEl, onFiles) {
   if (onFiles) inputEl.addEventListener("change", () => onFiles(Array.from(inputEl.files)));
 }
 
-function mostrarListaArchivos(container, files) {
-  if (!files.length) { container.innerHTML = ""; return; }
-  container.innerHTML = files.map((f) => `<span class="dropzone-filechip">📄 ${f.name}</span>`).join("");
+async function procesarArchivosXlsx(files) {
+  const container = document.getElementById("resultado-xlsx");
+  const periodoDefecto = document.getElementById("periodo-xlsx").value;
+  const soloXlsx = files.filter((f) => f.name.toLowerCase().endsWith(".xlsx"));
+  for (const file of files) {
+    if (!file.name.toLowerCase().endsWith(".xlsx")) continue;
+    const ruta = rutaArchivo(file);
+    const periodoDetectado = detectarPeriodoDesdeTexto(ruta);
+    const periodo = periodoDetectado || periodoDefecto;
+
+    const wrapper = document.createElement("div");
+    const titulo = document.createElement("h3");
+    titulo.style.marginBottom = "4px";
+    titulo.textContent = file.name;
+    const rutaDiv = document.createElement("div");
+    rutaDiv.className = "hint";
+    rutaDiv.style.marginTop = "-6px";
+    rutaDiv.textContent = ruta !== file.name ? `📁 ${ruta}` : "";
+    const resultDiv = document.createElement("div");
+    wrapper.appendChild(titulo);
+    wrapper.appendChild(rutaDiv);
+    wrapper.appendChild(resultDiv);
+    container.insertBefore(wrapper, container.firstChild);
+
+    try {
+      const buf = await file.arrayBuffer();
+      const workbook = XLSX.read(buf, { type: "array", cellDates: true });
+      const acta = parseActaXlsx(workbook, file.name);
+      const checks = validar(acta);
+      const chkMeses = checkConsistenciaMeses(acta, periodo);
+      if (chkMeses) checks.push(chkMeses);
+      consolidar(acta, periodo, checks);
+      renderResultado(resultDiv, { acta, checks, periodo, periodoAuto: !!periodoDetectado });
+    } catch (err) {
+      renderResultado(resultDiv, { error: `${file.name}: ${err.message}` });
+    }
+  }
+  if (!soloXlsx.length && files.length) {
+    alert("La carpeta seleccionada no tiene archivos .xlsx en la raíz o subcarpetas (o ya se procesaron).");
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   cargarEstado();
   poblarSelectPeriodos("periodo-xlsx");
 
-  setupDropzone(document.getElementById("dropzone-xlsx"), document.getElementById("file-xlsx"), (files) =>
-    mostrarListaArchivos(document.getElementById("filelist-xlsx"), files)
-  );
+  setupDropzone(document.getElementById("dropzone-xlsx"), document.getElementById("file-xlsx"), procesarArchivosXlsx);
   setupDropzone(document.getElementById("dropzone-pdfs"), document.getElementById("input-pdfs"));
+
+  document.getElementById("btn-folder-xlsx").addEventListener("click", () => document.getElementById("folder-xlsx").click());
+  document.getElementById("folder-xlsx").addEventListener("change", (e) => {
+    procesarArchivosXlsx(Array.from(e.target.files));
+    e.target.value = "";
+  });
+
+  document.getElementById("btn-folder-pdfs").addEventListener("click", () => document.getElementById("folder-pdfs").click());
+  document.getElementById("folder-pdfs").addEventListener("change", (e) => {
+    const files = Array.from(e.target.files).filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+    const container = document.getElementById("pdf-items");
+    files.forEach((file) => container.appendChild(crearTarjetaPDF(file)));
+    e.target.value = "";
+  });
 
   document.getElementById("btn-cargar-maestro").addEventListener("click", () => document.getElementById("input-maestro").click());
 
@@ -609,35 +732,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-refrescar-resumen").addEventListener("click", cargarResumen);
   document.getElementById("btn-refrescar-validaciones").addEventListener("click", cargarValidaciones);
   document.getElementById("download-btn").addEventListener("click", descargarMaestro);
-
-  document.getElementById("form-xlsx").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const container = document.getElementById("resultado-xlsx");
-    container.innerHTML = "";
-    const files = Array.from(document.getElementById("file-xlsx").files);
-    const periodo = document.getElementById("periodo-xlsx").value;
-    if (!files.length) return;
-    for (const file of files) {
-      const wrapper = document.createElement("div");
-      const titulo = document.createElement("h3");
-      titulo.style.marginBottom = "4px";
-      titulo.textContent = file.name;
-      const resultDiv = document.createElement("div");
-      wrapper.appendChild(titulo);
-      wrapper.appendChild(resultDiv);
-      container.appendChild(wrapper);
-      try {
-        const buf = await file.arrayBuffer();
-        const workbook = XLSX.read(buf, { type: "array", cellDates: true });
-        const acta = parseActaXlsx(workbook, file.name);
-        const checks = validar(acta);
-        consolidar(acta, periodo, checks);
-        renderResultado(resultDiv, { acta, checks, periodo });
-      } catch (err) {
-        renderResultado(resultDiv, { error: `${file.name}: ${err.message}` });
-      }
-    }
-  });
 
   document.getElementById("input-pdfs").addEventListener("change", (e) => {
     const files = Array.from(e.target.files);
