@@ -716,30 +716,22 @@ function setupDropzone(zoneEl, inputEl, onFiles) {
   if (onFiles) inputEl.addEventListener("change", () => onFiles(Array.from(inputEl.files)));
 }
 
+// --------------------------------------------------------------------------
+// Cola de revisión para Excel: cargar -> validar/previsualizar -> confirmar
+// --------------------------------------------------------------------------
+let stagingIdCounter = 0;
+const STAGING_XLSX = new Map(); // id -> {id, file, ruta, periodo, periodoDetectado, acta, checks, error}
+
 async function procesarArchivosXlsx(files) {
-  const container = document.getElementById("resultado-xlsx");
   const periodoDefecto = document.getElementById("periodo-xlsx").value;
   const soloXlsx = files.filter((f) => f.name.toLowerCase().endsWith(".xlsx"));
+  document.getElementById("confirmacion-xlsx").innerHTML = "";
   for (const file of files) {
     if (!file.name.toLowerCase().endsWith(".xlsx")) continue;
     const ruta = rutaArchivo(file);
     const periodoDetectado = detectarPeriodoDesdeTexto(ruta);
     const periodo = periodoDetectado || periodoDefecto;
-
-    const wrapper = document.createElement("div");
-    const titulo = document.createElement("h3");
-    titulo.style.marginBottom = "4px";
-    titulo.textContent = file.name;
-    const rutaDiv = document.createElement("div");
-    rutaDiv.className = "hint";
-    rutaDiv.style.marginTop = "-6px";
-    rutaDiv.textContent = ruta !== file.name ? `📁 ${ruta}` : "";
-    const resultDiv = document.createElement("div");
-    wrapper.appendChild(titulo);
-    wrapper.appendChild(rutaDiv);
-    wrapper.appendChild(resultDiv);
-    container.insertBefore(wrapper, container.firstChild);
-
+    const entry = { id: ++stagingIdCounter, file, ruta, periodo, periodoDetectado };
     try {
       const buf = await file.arrayBuffer();
       const workbook = XLSX.read(buf, { type: "array", cellDates: true });
@@ -747,15 +739,118 @@ async function procesarArchivosXlsx(files) {
       const checks = validar(acta);
       const chkMeses = checkConsistenciaMeses(acta, periodo);
       if (chkMeses) checks.push(chkMeses);
-      consolidar(acta, periodo, checks);
-      renderResultado(resultDiv, { acta, checks, periodo, periodoAuto: !!periodoDetectado });
+      entry.acta = acta;
+      entry.checks = checks;
     } catch (err) {
-      renderResultado(resultDiv, { error: `${file.name}: ${err.message}` });
+      entry.error = `${file.name}: ${err.message}`;
     }
+    STAGING_XLSX.set(entry.id, entry);
   }
+  renderStagingXlsx();
   if (!soloXlsx.length && files.length) {
-    alert("La carpeta seleccionada no tiene archivos .xlsx en la raíz o subcarpetas (o ya se procesaron).");
+    alert("La carpeta seleccionada no tiene archivos .xlsx en la raíz o subcarpetas.");
   }
+}
+
+function recalcularEntry(entry) {
+  if (!entry.acta) return;
+  entry.checks = validar(entry.acta);
+  const chkMeses = checkConsistenciaMeses(entry.acta, entry.periodo);
+  if (chkMeses) entry.checks.push(chkMeses);
+}
+
+function renderStagingCard(entry) {
+  const div = document.createElement("div");
+  div.className = "staging-item";
+
+  if (entry.error) {
+    div.innerHTML = `
+      <div class="toolbar">
+        <h3 style="margin:0;">${entry.file.name}</h3>
+        <button type="button" class="danger">✕ Quitar</button>
+      </div>
+      <div class="msg error">${entry.error}</div>`;
+    div.querySelector("button").addEventListener("click", () => { STAGING_XLSX.delete(entry.id); renderStagingXlsx(); });
+    return div;
+  }
+
+  const { acta, checks, periodo, periodoDetectado, ruta } = entry;
+  const nErr = checks.filter((c) => c.resultado === "ERROR").length;
+  const filas = checks
+    .map((c) => `
+      <tr class="${c.resultado === "ERROR" ? "row-error" : ""}">
+        <td>${c.chequeo}</td>
+        <td><span class="pill ${c.resultado === "OK" ? "ok" : "error"}">${c.resultado}</span></td>
+        <td>${c.detalle}</td>
+      </tr>`)
+    .join("");
+
+  div.innerHTML = `
+    <div class="toolbar">
+      <div>
+        <h3 style="margin:0;">${entry.file.name}</h3>
+        ${ruta !== entry.file.name ? `<div class="hint" style="margin-top:2px;">📁 ${ruta}</div>` : ""}
+      </div>
+      <button type="button" class="danger">✕ Quitar</button>
+    </div>
+    <div class="msg ${nErr === 0 ? "ok" : "error"}">
+      ${nErr === 0 ? "✔" : "⚠"} ${acta.municipio} — Contrato ${acta.contrato} — Acta ${acta.acta_no} — periodo
+      <select class="select-inline periodo-override"></select>
+      ${periodoDetectado ? '<span class="pill ok">auto</span>' : ""}
+      : ${checks.length} chequeos, ${nErr === 0 ? "todos OK" : `${nErr} con ERROR`}.
+    </div>
+    <div class="table-wrap" style="margin-top:10px;">
+      <table><thead><tr><th>Chequeo</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody>${filas}</tbody></table>
+    </div>`;
+
+  div.querySelector("button.danger").addEventListener("click", () => { STAGING_XLSX.delete(entry.id); renderStagingXlsx(); });
+  const sel = div.querySelector(".periodo-override");
+  sel.innerHTML = Object.keys(PERIODO_MESES).map((k) => `<option value="${k}" ${k === periodo ? "selected" : ""}>${k}</option>`).join("");
+  sel.addEventListener("change", () => {
+    entry.periodo = sel.value;
+    entry.periodoDetectado = false;
+    recalcularEntry(entry);
+    renderStagingXlsx();
+  });
+
+  return div;
+}
+
+function renderStagingXlsx() {
+  const card = document.getElementById("card-revision-xlsx");
+  const container = document.getElementById("resultado-xlsx");
+  if (STAGING_XLSX.size === 0) {
+    card.style.display = "none";
+    container.innerHTML = "";
+    return;
+  }
+  card.style.display = "block";
+  const entries = [...STAGING_XLSX.values()].reverse();
+  const nValidos = entries.filter((e) => e.acta).length;
+  document.getElementById("btn-confirmar-xlsx").textContent = `✅ Confirmar y consolidar todo (${nValidos})`;
+  container.innerHTML = "";
+  entries.forEach((entry) => container.appendChild(renderStagingCard(entry)));
+}
+
+function confirmarConsolidacionXlsx() {
+  let count = 0;
+  STAGING_XLSX.forEach((entry) => {
+    if (entry.acta) {
+      consolidar(entry.acta, entry.periodo, entry.checks);
+      count++;
+    }
+  });
+  const omitidos = STAGING_XLSX.size - count;
+  STAGING_XLSX.clear();
+  renderStagingXlsx();
+  document.getElementById("confirmacion-xlsx").innerHTML =
+    `<div class="msg ok">✔ Se consolidaron ${count} archivo(s) al maestro.${omitidos ? ` ${omitidos} con error de lectura se omitieron.` : ""} Revísalo en "Resumen de cumplimiento".</div>`;
+}
+
+function descartarTodoXlsx() {
+  STAGING_XLSX.clear();
+  renderStagingXlsx();
+  document.getElementById("confirmacion-xlsx").innerHTML = "";
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -780,6 +875,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("btn-cargar-maestro").addEventListener("click", () => document.getElementById("input-maestro").click());
+  document.getElementById("btn-confirmar-xlsx").addEventListener("click", confirmarConsolidacionXlsx);
+  document.getElementById("btn-descartar-xlsx").addEventListener("click", descartarTodoXlsx);
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {

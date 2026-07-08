@@ -39,8 +39,8 @@
   <!-- TAB: Cargar Excel -->
   <section id="tab-xlsx" class="tab active">
     <div class="card">
-      <h2>Cargar acta(s) en Excel</h2>
-      <p class="hint">Cada archivo se procesa al soltarlo — no hace falta un botón de "enviar", y nada de lo ya cargado se pierde al seguir agregando más. El periodo (OTRO SI, 1-TRIM, etc.) se detecta automáticamente por el nombre de la carpeta o del archivo; si no se detecta, se usa el periodo por defecto de abajo.</p>
+      <h2>1. Cargar acta(s) en Excel</h2>
+      <p class="hint">Selecciona uno o varios archivos, o una carpeta completa. Cada uno se valida al instante, pero <strong>no se consolida todavía</strong> — primero puedes revisar los resultados abajo y quitar lo que no quieras.</p>
       <label>Archivos .xlsx</label>
       <div class="dropzone" id="dropzone-xlsx" tabindex="0">
         <div class="dropzone-icon">📂</div>
@@ -52,8 +52,20 @@
 
       <label>Periodo por defecto <span class="label-note">(solo si no se detecta automáticamente)</span></label>
       <select id="periodo-xlsx"></select>
+    </div>
 
-      <div id="resultado-xlsx" style="margin-top:10px;"></div>
+    <div class="card" id="card-revision-xlsx" style="display:none;">
+      <div class="toolbar">
+        <h2 style="margin:0;">2. Revisar antes de consolidar</h2>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="secondary" id="btn-descartar-xlsx">Descartar todo</button>
+          <button type="button" class="primary" id="btn-confirmar-xlsx" style="margin-top:0;">✅ Confirmar y consolidar todo</button>
+        </div>
+      </div>
+      <div id="resultado-xlsx"></div>
+    </div>
+
+    <div id="confirmacion-xlsx"></div>
     </div>
   </section>
 

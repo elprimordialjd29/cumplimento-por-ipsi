@@ -249,6 +249,10 @@ tbody tr:hover td { background: #f7f9ff; }
 
 .pdf-card { border: 1px solid var(--borde); border-radius: var(--radius); padding: 20px; margin-top: 20px; background: #fbfcfe; box-shadow: var(--shadow); }
 .pdf-card h3 { color: var(--brand-darker); }
+
+.staging-item { border: 1px solid var(--borde); border-radius: var(--radius); padding: 18px; margin-top: 16px; background: #fbfcfe; }
+.staging-item h3 { color: var(--brand-darker); }
+.select-inline { width: auto; display: inline-block; padding: 3px 8px; font-weight: 700; font-size: 0.85rem; }
 .pdf-pages { margin: 10px 0 6px; }
 .pdf-embed { width: 100%; height: 520px; border: 1px solid var(--borde); border-radius: 8px; box-shadow: var(--shadow); }
 .pdf-open-link { display: inline-block; margin-bottom: 8px; font-size: 0.82rem; color: var(--brand-dark); text-decoration: none; font-weight: 600; }
