@@ -4,28 +4,34 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Consolidación Actas PYM/PMT/DNT - DUSAKAWI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
 <header>
-  <div>
-    <h1>Consolidación de Actas PYM / PMT / DNT — DUSAKAWI</h1>
-    <div class="sub">100% en el navegador — sin servidor. Tus datos se guardan solo en este navegador (localStorage).</div>
+  <div class="header-brand">
+    <div class="brand-badge">DK</div>
+    <div>
+      <h1>Consolidación de Actas <span>PYM / PMT / DNT</span></h1>
+      <div class="sub">DUSAKAWI IPSI · 100% en el navegador, sin servidor. Tus datos se guardan solo en este dispositivo.</div>
+    </div>
   </div>
   <div class="header-actions">
-    <button class="ghost" onclick="document.getElementById('input-maestro').click()">⬆ Cargar maestro (.xlsx)</button>
-    <input type="file" id="input-maestro" accept=".xlsx" style="display:none">
-    <button id="download-btn">⬇ Descargar Excel maestro</button>
+    <button class="ghost" id="btn-cargar-maestro">⬆ <span>Cargar maestro</span></button>
+    <input type="file" id="input-maestro" accept=".xlsx" hidden>
+    <button id="download-btn">⬇ <span>Descargar Excel maestro</span></button>
   </div>
 </header>
 
 <nav>
-  <button class="tab-btn active" data-tab="tab-xlsx">Cargar Excel</button>
-  <button class="tab-btn" data-tab="tab-manual">Cargar PDF (manual)</button>
-  <button class="tab-btn" data-tab="tab-resumen">Resumen de cumplimiento</button>
-  <button class="tab-btn" data-tab="tab-validaciones">Validaciones</button>
+  <button class="tab-btn active" data-tab="tab-xlsx"><span class="tab-icon">📊</span>Cargar Excel</button>
+  <button class="tab-btn" data-tab="tab-manual"><span class="tab-icon">📄</span>Cargar PDF</button>
+  <button class="tab-btn" data-tab="tab-resumen"><span class="tab-icon">📈</span>Resumen de cumplimiento</button>
+  <button class="tab-btn" data-tab="tab-validaciones"><span class="tab-icon">✅</span>Validaciones</button>
 </nav>
 
 <main>
@@ -36,9 +42,14 @@
       <h2>Cargar acta(s) en Excel</h2>
       <p class="hint">Puedes seleccionar varios archivos .xlsx a la vez (ej. todos los municipios de un mismo periodo). Se extraen automáticamente el encabezado (Nº Acta, Nº Contrato, Empresa, Municipio) y la tabla de Programa / Vr Exigido / Vr Reconocido / Descuento de cada uno.</p>
       <form id="form-xlsx">
-        <label>Archivos (.xlsx) — selección múltiple habilitada</label>
-        <input type="file" name="file" id="file-xlsx" accept=".xlsx" multiple required>
-        <label>Periodo (se aplica a todos los archivos seleccionados)</label>
+        <label>Archivos .xlsx</label>
+        <div class="dropzone" id="dropzone-xlsx" tabindex="0">
+          <div class="dropzone-icon">📂</div>
+          <div class="dropzone-text"><strong>Arrastra tus archivos aquí</strong> o haz clic para seleccionarlos</div>
+          <div class="dropzone-filelist" id="filelist-xlsx"></div>
+          <input type="file" name="file" id="file-xlsx" accept=".xlsx" multiple required hidden>
+        </div>
+        <label>Periodo <span class="label-note">(se aplica a todos los archivos seleccionados)</span></label>
         <select name="periodo" id="periodo-xlsx" required></select>
         <button class="primary" type="submit">Validar y consolidar todos</button>
       </form>
@@ -50,9 +61,12 @@
   <section id="tab-manual" class="tab">
     <div class="card">
       <h2>Cargar acta(s) en PDF</h2>
-      <p class="hint">Sube uno o varios PDF. Como estos escaneos no tienen texto seleccionable, la app no adivina los montos por ti (para no arriesgar un error de lectura en cifras financieras) — pero renderiza cada página aquí mismo, al lado del formulario, para que transcribas sin salir de la herramienta. Aparecerá un formulario independiente por cada PDF que subas.</p>
-      <label>Archivos (.pdf) — selección múltiple habilitada</label>
-      <input type="file" id="input-pdfs" accept=".pdf" multiple>
+      <p class="hint">Sube uno o varios PDF. Como estos escaneos no tienen texto seleccionable, la app no adivina los montos por ti (para no arriesgar un error de lectura en cifras financieras) — pero cada uno se muestra aquí mismo, al lado de su propio formulario, para que transcribas sin salir de la herramienta.</p>
+      <div class="dropzone" id="dropzone-pdfs" tabindex="0">
+        <div class="dropzone-icon">📄</div>
+        <div class="dropzone-text"><strong>Arrastra tus PDF aquí</strong> o haz clic para seleccionarlos</div>
+        <input type="file" id="input-pdfs" accept=".pdf" multiple hidden>
+      </div>
       <div id="pdf-items"></div>
     </div>
   </section>
@@ -83,7 +97,7 @@
 
 <footer>
   Herramienta DUSAKAWI IPSI — los datos viven únicamente en este navegador. Usa "Descargar Excel maestro" para respaldar o
-  "Cargar maestro (.xlsx)" para continuar desde otro computador.
+  "Cargar maestro" para continuar desde otro computador.
 </footer>
 
 <script src="app.js"></script>

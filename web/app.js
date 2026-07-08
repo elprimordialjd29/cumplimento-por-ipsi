@@ -323,10 +323,14 @@ function renderResultado(container, payload) {
 }
 
 function fmtPct(v) {
-  if (v === null || v === undefined || v === "") return "-";
-  const pct = (v * 100).toFixed(1) + "%";
-  const cls = v >= 0.999 ? "pct-100" : v < 0.9 ? "pct-bad" : "";
-  return `<span class="${cls}">${pct}</span>`;
+  if (v === null || v === undefined || v === "") return '<span style="color:#c0c4cc;">—</span>';
+  const pct = v * 100;
+  const cls = pct >= 99.9 ? "pct-100" : pct >= 90 ? "pct-mid" : "pct-bad";
+  const ancho = Math.max(0, Math.min(pct, 100));
+  return `<div class="pct-wrap ${cls}">
+      <div class="pct-bar-track"><div class="pct-bar-fill" style="width:${ancho}%"></div></div>
+      <span class="pct-label">${pct.toFixed(1)}%</span>
+    </div>`;
 }
 
 function cargarResumen() {
@@ -342,7 +346,7 @@ function cargarResumen() {
     .map((r) => {
       let tds = `<td>${r.Municipio}</td><td>${r.Contrato}</td><td>${r.Programa}</td>`;
       periodos.forEach((p) => { tds += `<td class="pct-cell">${fmtPct(r[p])}</td>`; });
-      tds += `<td class="pct-cell"><strong>${fmtPct(r.Promedio)}</strong></td>`;
+      tds += `<td class="pct-cell" style="background:#f7f9ff;">${fmtPct(r.Promedio)}</td>`;
       return `<tr>${tds}</tr>`;
     })
     .join("");
@@ -551,9 +555,45 @@ function crearTarjetaPDF(file) {
   return card;
 }
 
+// --------------------------------------------------------------------------
+// Dropzones (arrastrar y soltar + click para seleccionar)
+// --------------------------------------------------------------------------
+function setupDropzone(zoneEl, inputEl, onFiles) {
+  zoneEl.addEventListener("click", () => inputEl.click());
+  zoneEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inputEl.click(); }
+  });
+  ["dragenter", "dragover"].forEach((evt) =>
+    zoneEl.addEventListener(evt, (e) => { e.preventDefault(); zoneEl.classList.add("dragover"); })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    zoneEl.addEventListener(evt, (e) => { e.preventDefault(); zoneEl.classList.remove("dragover"); })
+  );
+  zoneEl.addEventListener("drop", (e) => {
+    const files = e.dataTransfer.files;
+    if (!files || !files.length) return;
+    inputEl.files = files;
+    inputEl.dispatchEvent(new Event("change"));
+  });
+  inputEl.addEventListener("click", (e) => e.stopPropagation());
+  if (onFiles) inputEl.addEventListener("change", () => onFiles(Array.from(inputEl.files)));
+}
+
+function mostrarListaArchivos(container, files) {
+  if (!files.length) { container.innerHTML = ""; return; }
+  container.innerHTML = files.map((f) => `<span class="dropzone-filechip">📄 ${f.name}</span>`).join("");
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   cargarEstado();
   poblarSelectPeriodos("periodo-xlsx");
+
+  setupDropzone(document.getElementById("dropzone-xlsx"), document.getElementById("file-xlsx"), (files) =>
+    mostrarListaArchivos(document.getElementById("filelist-xlsx"), files)
+  );
+  setupDropzone(document.getElementById("dropzone-pdfs"), document.getElementById("input-pdfs"));
+
+  document.getElementById("btn-cargar-maestro").addEventListener("click", () => document.getElementById("input-maestro").click());
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
