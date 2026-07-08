@@ -1,0 +1,26 @@
+{
+  "archivo_origen": "5-OTRO SI(ENERO-FEBRERO)-DUSAKAWI-SUB/ACTAS/ACTA PYM DUSAKAWI AGUSTIN CODAZZI OTRO SI ENERO FEBRERO.pdf",
+  "municipio": "AGUSTIN CODAZZI, CESAR",
+  "contrato": "20013-061-PMT",
+  "acta_no": "20013-061-PMT-5",
+  "meses": "ENE,FEB",
+  "empresa": "DUSAKAWI IPSI",
+  "nit": "824002362",
+  "regimen": "SUBSIDIADO",
+  "vigencia_contrato": "1/01/2026- 28/02/2026",
+  "programas": [
+    {"programa": "INDIVIDUALES PARA NIÑOS Y NIÑAS EN PRIMERA INFANCIA 1M - 5A", "vr_exigido": 12520992.00, "vr_reconocido": 12520992.00, "descuento": 0.00},
+    {"programa": "INDIVIDUALES PARA NIÑOS Y NIÑAS EN INFANCIA 6 - 11 AÑOS", "vr_exigido": 12693168.00, "vr_reconocido": 12525364.08, "descuento": 167803.92},
+    {"programa": "INDIVIDUALES PARA LOS ADOLESCENTES 12 - 17 AÑOS", "vr_exigido": 14238380.00, "vr_reconocido": 14012649.59, "descuento": 225730.41},
+    {"programa": "INDIVIDUALES PARA LOS JOVENES 18 - 28 AÑOS", "vr_exigido": 31701152.00, "vr_reconocido": 31324025.37, "descuento": 377126.63},
+    {"programa": "INDIVIDUALES PARA LOS ADULTOS 29 - 59 AÑOS", "vr_exigido": 16422840.00, "vr_reconocido": 16016521.17, "descuento": 406318.83},
+    {"programa": "INDIVIDUALES PARA LOS ADULTOS MAYORES 60 A 80 Y MAS", "vr_exigido": 4486064.00, "vr_reconocido": 4300550.08, "descuento": 185513.92},
+    {"programa": "PAI", "vr_exigido": 3698520.00, "vr_reconocido": 3698520.00, "descuento": 0.00},
+    {"programa": "MATERNO PERINATAL", "vr_exigido": 79940029.00, "vr_reconocido": 79033581.59, "descuento": 906447.41},
+    {"programa": "ATENCION POSPARTO", "vr_exigido": 626573.00, "vr_reconocido": 626573.00, "descuento": 0.00},
+    {"programa": "DEMANDA INDUCIDA", "vr_exigido": 9944490.00, "vr_reconocido": 9944490.00, "descuento": 0.00},
+    {"programa": "RUTA RIESGO CARDIOVASCULAR BAJA", "vr_exigido": 42565647.00, "vr_reconocido": 41823823.46, "descuento": 741823.54}
+  ],
+  "total_ejecucion": {"vr_exigido": 228837855.00, "vr_reconocido": 225827090.33, "descuento": 3010764.67},
+  "total_descuento_no_pai": 3010764.67
+}

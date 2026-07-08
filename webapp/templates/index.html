@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consolidación Actas PYM/PMT/DNT - DUSAKAWI</title>
+<style>
+  :root {
+    --azul: #4472C4;
+    --azul-osc: #2f5597;
+    --verde: #2e7d32;
+    --rojo: #c62828;
+    --gris: #f4f6fa;
+    --borde: #d9dee7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    margin: 0;
+    background: var(--gris);
+    color: #222;
+  }
+  header {
+    background: var(--azul-osc);
+    color: white;
+    padding: 16px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  header h1 { font-size: 1.25rem; margin: 0; }
+  header .sub { font-size: 0.8rem; opacity: 0.85; }
+  #download-btn {
+    background: #fff;
+    color: var(--azul-osc);
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #download-btn:hover { background: #e8edf7; }
+  nav {
+    display: flex;
+    background: white;
+    border-bottom: 2px solid var(--borde);
+    padding: 0 16px;
+    overflow-x: auto;
+  }
+  nav button {
+    background: none;
+    border: none;
+    padding: 14px 18px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    color: #555;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+  }
+  nav button.active {
+    color: var(--azul-osc);
+    border-bottom-color: var(--azul);
+    font-weight: 600;
+  }
+  main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+  .tab { display: none; }
+  .tab.active { display: block; }
+  .card {
+    background: white;
+    border: 1px solid var(--borde);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 { margin-top: 0; font-size: 1.05rem; color: var(--azul-osc); }
+  label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 4px; margin-top: 10px; }
+  input[type=text], input[type=number], input[type=file], select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--borde);
+    border-radius: 6px;
+    font-size: 0.9rem;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .grid3 { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 0 10px; align-items: end; }
+  button.primary {
+    margin-top: 16px;
+    background: var(--azul);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:hover { background: var(--azul-osc); }
+  button.secondary {
+    background: #eef1f7;
+    color: #333;
+    border: 1px solid var(--borde);
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  button.danger {
+    background: #fde8e8;
+    color: var(--rojo);
+    border: 1px solid #f3b3b3;
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { border: 1px solid var(--borde); padding: 6px 8px; text-align: left; }
+  th { background: var(--azul); color: white; position: sticky; top: 0; }
+  tr:nth-child(even) td { background: #fafbfd; }
+  .ok { color: var(--verde); font-weight: 600; }
+  .error-txt { color: var(--rojo); font-weight: 600; }
+  .row-error td { background: #fdecea !important; }
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .pill.ok { background: #e4f4e6; color: var(--verde); }
+  .pill.error { background: #fdecea; color: var(--rojo); }
+  .table-wrap { overflow-x: auto; }
+  .empty { color: #888; font-style: italic; padding: 12px 0; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .msg { margin-top: 14px; padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; }
+  .msg.ok { background: #e4f4e6; color: var(--verde); }
+  .msg.error { background: #fdecea; color: var(--rojo); }
+  .pct-cell { text-align: right; font-variant-numeric: tabular-nums; }
+  .pct-100 { color: var(--verde); font-weight: 600; }
+  .pct-bad { color: var(--rojo); font-weight: 600; }
+  .hint { font-size: 0.78rem; color: #777; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Consolidación de Actas PYM / PMT / DNT — DUSAKAWI</h1>
+    <div class="sub">Validación de consistencia interna + consolidado de % de cumplimiento por actividad y periodo</div>
+  </div>
+  <button id="download-btn" onclick="window.location='/api/download'">⬇ Descargar Excel maestro</button>
+</header>
+
+<nav>
+  <button class="tab-btn active" data-tab="tab-xlsx">Cargar Excel</button>
+  <button class="tab-btn" data-tab="tab-manual">Cargar PDF (manual)</button>
+  <button class="tab-btn" data-tab="tab-resumen">Resumen de cumplimiento</button>
+  <button class="tab-btn" data-tab="tab-validaciones">Validaciones</button>
+</nav>
+
+<main>
+
+  <!-- TAB: Cargar Excel -->
+  <section id="tab-xlsx" class="tab active">
+    <div class="card">
+      <h2>Cargar acta en Excel</h2>
+      <p class="hint">Se extraen automáticamente el encabezado (Nº Acta, Nº Contrato, Empresa, Municipio) y la tabla de Programa / Vr Exigido / Vr Reconocido / Descuento.</p>
+      <form id="form-xlsx">
+        <label>Archivo (.xlsx)</label>
+        <input type="file" name="file" accept=".xlsx" required>
+        <label>Periodo</label>
+        <select name="periodo" id="periodo-xlsx" required></select>
+        <button class="primary" type="submit">Validar y consolidar</button>
+      </form>
+      <div id="resultado-xlsx"></div>
+    </div>
+  </section>
+
+  <!-- TAB: Cargar PDF manual -->
+  <section id="tab-manual" class="tab">
+    <div class="card">
+      <h2>Cargar acta en PDF (transcripción manual)</h2>
+      <p class="hint">Los PDF de estas actas son escaneos sin texto seleccionable. Transcribe los valores del documento en este formulario.</p>
+      <form id="form-manual">
+        <div class="grid2">
+          <div><label>Municipio</label><input type="text" name="municipio" required></div>
+          <div><label>Nº Contrato</label><input type="text" name="contrato" required placeholder="Ej. 20013-061-PMT"></div>
+          <div><label>Nº Acta</label><input type="text" name="acta_no" required placeholder="Ej. 20013-061-PMT-5"></div>
+          <div><label>Periodo</label><select name="periodo" id="periodo-manual" required></select></div>
+          <div><label>Meses evaluados</label><input type="text" name="meses" placeholder="Ej. ENE,FEB"></div>
+          <div><label>Empresa</label><input type="text" name="empresa" value="DUSAKAWI IPSI"></div>
+          <div><label>NIT</label><input type="text" name="nit"></div>
+          <div><label>Régimen</label><input type="text" name="regimen" value="SUBSIDIADO"></div>
+        </div>
+
+        <h3 style="margin-top:22px;">Tabla de programas</h3>
+        <div class="table-wrap">
+          <table id="tabla-programas">
+            <thead>
+              <tr><th>Programa</th><th>Vr Exigido</th><th>Vr Reconocido</th><th>Descuento</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button type="button" class="secondary" onclick="agregarFilaPrograma()">+ Agregar actividad</button>
+
+        <h3 style="margin-top:22px;">Total ejecución (según el acta)</h3>
+        <div class="grid2">
+          <div><label>Total Vr Exigido</label><input type="number" step="0.01" name="total_exigido"></div>
+          <div><label>Total Vr Reconocido</label><input type="number" step="0.01" name="total_reconocido"></div>
+          <div><label>Total Descuento</label><input type="number" step="0.01" name="total_descuento"></div>
+        </div>
+
+        <button class="primary" type="submit">Validar y consolidar</button>
+      </form>
+      <div id="resultado-manual"></div>
+    </div>
+  </section>
+
+  <!-- TAB: Resumen -->
+  <section id="tab-resumen" class="tab">
+    <div class="card">
+      <div class="toolbar">
+        <h2 style="margin:0;">Resumen de % de cumplimiento por actividad</h2>
+        <button class="secondary" onclick="cargarResumen()">↻ Actualizar</button>
+      </div>
+      <div id="resumen-contenido" class="table-wrap"></div>
+    </div>
+  </section>
+
+  <!-- TAB: Validaciones -->
+  <section id="tab-validaciones" class="tab">
+    <div class="card">
+      <div class="toolbar">
+        <h2 style="margin:0;">Historial de validaciones</h2>
+        <button class="secondary" onclick="cargarValidaciones()">↻ Actualizar</button>
+      </div>
+      <div id="validaciones-contenido" class="table-wrap"></div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+const PERIODOS = {{ periodos | tojson }};
+
+function poblarSelectPeriodos(id) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = PERIODOS.map(p => `<option value="${p.value}">${p.label}</option>`).join('');
+}
+poblarSelectPeriodos('periodo-xlsx');
+poblarSelectPeriodos('periodo-manual');
+
+// --- Navegación de tabs ---
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'tab-resumen') cargarResumen();
+    if (btn.dataset.tab === 'tab-validaciones') cargarValidaciones();
+  });
+});
+
+// --- Filas dinámicas de la tabla manual ---
+function agregarFilaPrograma(valores) {
+  const tbody = document.querySelector('#tabla-programas tbody');
+  const tr = document.createElement('tr');
+  const v = valores || {programa:'', vr_exigido:'', vr_reconocido:'', descuento:''};
+  tr.innerHTML = `
+    <td><input type="text" class="p-nombre" value="${v.programa}" placeholder="Nombre de la actividad"></td>
+    <td><input type="number" step="0.01" class="p-exigido" value="${v.vr_exigido}"></td>
+    <td><input type="number" step="0.01" class="p-reconocido" value="${v.vr_reconocido}"></td>
+    <td><input type="number" step="0.01" class="p-descuento" value="${v.descuento}"></td>
+    <td><button type="button" class="danger" onclick="this.closest('tr').remove()">✕</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+const PROGRAMAS_TIPICOS = [
+  "INDIVIDUALES PARA NIÑOS Y NIÑAS EN PRIMERA INFANCIA 1M - 5A",
+  "INDIVIDUALES PARA NIÑOS Y NIÑAS EN INFANCIA 6 - 11 AÑOS",
+  "INDIVIDUALES PARA LOS ADOLESCENTES 12 - 17 AÑOS",
+  "INDIVIDUALES PARA LOS JOVENES 18 - 28 AÑOS",
+  "INDIVIDUALES PARA LOS ADULTOS 29 - 59 AÑOS",
+  "INDIVIDUALES PARA LOS ADULTOS MAYORES 60 A 80 Y MAS",
+  "PAI",
+  "MATERNO PERINATAL",
+  "ATENCION POSPARTO",
+  "DEMANDA INDUCIDA",
+  "RUTA RIESGO CARDIOVASCULAR BAJA",
+];
+PROGRAMAS_TIPICOS.forEach(nombre => agregarFilaPrograma({programa: nombre, vr_exigido:'', vr_reconocido:'', descuento:''}));
+
+// --- Render de resultados de validación ---
+function renderResultado(container, data) {
+  if (data.error) {
+    container.innerHTML = `<div class="msg error">${data.error}</div>`;
+    return;
+  }
+  const nErr = data.checks.filter(c => c.resultado === 'ERROR').length;
+  const resumenMsg = nErr === 0
+    ? `<div class="msg ok">✔ ${data.acta.municipio} — Contrato ${data.acta.contrato} — Acta ${data.acta.acta_no} — periodo ${data.periodo}: ${data.checks.length} chequeos, todos OK.</div>`
+    : `<div class="msg error">⚠ ${data.acta.municipio} — Contrato ${data.acta.contrato} — Acta ${data.acta.acta_no} — periodo ${data.periodo}: ${nErr} de ${data.checks.length} chequeos con ERROR.</div>`;
+
+  const filas = data.checks.map(c => `
+    <tr class="${c.resultado === 'ERROR' ? 'row-error' : ''}">
+      <td>${c.chequeo}</td>
+      <td><span class="pill ${c.resultado === 'OK' ? 'ok' : 'error'}">${c.resultado}</span></td>
+      <td>${c.detalle}</td>
+    </tr>`).join('');
+
+  container.innerHTML = resumenMsg + `
+    <div class="table-wrap" style="margin-top:12px;">
+      <table>
+        <thead><tr><th>Chequeo</th><th>Resultado</th><th>Detalle</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+}
+
+// --- Form: Cargar Excel ---
+document.getElementById('form-xlsx').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const container = document.getElementById('resultado-xlsx');
+  container.innerHTML = '<div class="empty">Procesando...</div>';
+  const fd = new FormData(e.target);
+  const resp = await fetch('/api/upload-xlsx', { method: 'POST', body: fd });
+  const data = await resp.json();
+  renderResultado(container, data);
+});
+
+// --- Form: Cargar manual (PDF) ---
+document.getElementById('form-manual').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const container = document.getElementById('resultado-manual');
+  container.innerHTML = '<div class="empty">Procesando...</div>';
+  const fd = new FormData(e.target);
+
+  const programas = [];
+  document.querySelectorAll('#tabla-programas tbody tr').forEach(tr => {
+    const nombre = tr.querySelector('.p-nombre').value.trim();
+    if (!nombre) return;
+    programas.push({
+      programa: nombre,
+      vr_exigido: parseFloat(tr.querySelector('.p-exigido').value) || 0,
+      vr_reconocido: parseFloat(tr.querySelector('.p-reconocido').value) || 0,
+      descuento: parseFloat(tr.querySelector('.p-descuento').value) || 0,
+    });
+  });
+
+  const acta = {
+    municipio: fd.get('municipio'),
+    contrato: fd.get('contrato'),
+    acta_no: fd.get('acta_no'),
+    meses: fd.get('meses'),
+    empresa: fd.get('empresa'),
+    nit: fd.get('nit'),
+    regimen: fd.get('regimen'),
+    archivo_origen: '(transcripción manual desde PDF)',
+    programas: programas,
+    total_ejecucion: {
+      vr_exigido: parseFloat(fd.get('total_exigido')) || 0,
+      vr_reconocido: parseFloat(fd.get('total_reconocido')) || 0,
+      descuento: parseFloat(fd.get('total_descuento')) || 0,
+    },
+  };
+
+  const resp = await fetch('/api/upload-manual', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ periodo: fd.get('periodo'), acta }),
+  });
+  const data = await resp.json();
+  renderResultado(container, data);
+});
+
+// --- Resumen de cumplimiento ---
+async function cargarResumen() {
+  const container = document.getElementById('resumen-contenido');
+  container.innerHTML = '<div class="empty">Cargando...</div>';
+  const resp = await fetch('/api/resumen');
+  const data = await resp.json();
+  if (!data.rows || data.rows.length === 0) {
+    container.innerHTML = '<div class="empty">Aún no hay actas consolidadas.</div>';
+    return;
+  }
+  const periodos = data.periodos;
+  const headerCols = ['Municipio', 'Contrato', 'Programa', ...periodos, 'Promedio'];
+  const fmtPct = (v) => {
+    if (v === null || v === undefined || v === '') return '-';
+    const pct = (v * 100).toFixed(1) + '%';
+    const cls = v >= 0.999 ? 'pct-100' : (v < 0.9 ? 'pct-bad' : '');
+    return `<span class="${cls}">${pct}</span>`;
+  };
+  let thead = '<tr>' + headerCols.map(c => `<th>${c}</th>`).join('') + '</tr>';
+  let bodyRows = data.rows.map(r => {
+    let tds = `<td>${r.Municipio}</td><td>${r.Contrato}</td><td>${r.Programa}</td>`;
+    periodos.forEach(p => { tds += `<td class="pct-cell">${fmtPct(r[p])}</td>`; });
+    tds += `<td class="pct-cell"><strong>${fmtPct(r.Promedio)}</strong></td>`;
+    return `<tr>${tds}</tr>`;
+  }).join('');
+  container.innerHTML = `<table><thead>${thead}</thead><tbody>${bodyRows}</tbody></table>`;
+}
+
+// --- Validaciones ---
+async function cargarValidaciones() {
+  const container = document.getElementById('validaciones-contenido');
+  container.innerHTML = '<div class="empty">Cargando...</div>';
+  const resp = await fetch('/api/validaciones');
+  const data = await resp.json();
+  if (!data || data.length === 0) {
+    container.innerHTML = '<div class="empty">Aún no hay validaciones registradas.</div>';
+    return;
+  }
+  const rows = data.map(r => `
+    <tr class="${r.Resultado === 'ERROR' ? 'row-error' : ''}">
+      <td>${r.Municipio}</td><td>${r.Contrato}</td><td>${r.Acta_No}</td><td>${r.Periodo}</td>
+      <td>${r.Chequeo}</td>
+      <td><span class="pill ${r.Resultado === 'OK' ? 'ok' : 'error'}">${r.Resultado}</span></td>
+      <td>${r.Detalle}</td>
+    </tr>`).join('');
+  container.innerHTML = `<table>
+    <thead><tr><th>Municipio</th><th>Contrato</th><th>Acta</th><th>Periodo</th><th>Chequeo</th><th>Resultado</th><th>Detalle</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+</script>
+</body>
+</html>
