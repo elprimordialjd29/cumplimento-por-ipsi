@@ -390,12 +390,8 @@ function renderResultado(container, payload) {
 function fmtPct(v) {
   if (v === null || v === undefined || v === "") return '<span style="color:#c0c4cc;">—</span>';
   const pct = v * 100;
-  const cls = pct >= 99.9 ? "pct-100" : pct >= 90 ? "pct-mid" : "pct-bad";
-  const ancho = Math.max(0, Math.min(pct, 100));
-  return `<div class="pct-wrap ${cls}">
-      <div class="pct-bar-track"><div class="pct-bar-fill" style="width:${ancho}%"></div></div>
-      <span class="pct-label">${pct.toFixed(1)}%</span>
-    </div>`;
+  const cls = pct >= 99.9 ? "pct-pill-ok" : pct >= 90 ? "pct-pill-mid" : "pct-pill-bad";
+  return `<span class="pct-pill ${cls}">${pct.toFixed(1)}%</span>`;
 }
 
 function cargarResumen() {

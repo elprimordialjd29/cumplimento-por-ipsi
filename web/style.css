@@ -231,14 +231,19 @@ tbody tr:hover td { background: #f7f9ff; }
 .msg.ok { background: var(--verde-bg); color: var(--verde); }
 .msg.error { background: var(--rojo-bg); color: var(--rojo); }
 
-.pct-cell { text-align: right; font-variant-numeric: tabular-nums; min-width: 130px; }
-.pct-wrap { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-.pct-bar-track { flex: 1; max-width: 60px; height: 6px; border-radius: 4px; background: #e9ecf5; overflow: hidden; }
-.pct-bar-fill { height: 100%; border-radius: 4px; }
-.pct-label { font-weight: 700; min-width: 46px; text-align: right; }
-.pct-100 .pct-label, .pct-100 .pct-bar-fill { color: var(--verde); background: var(--verde); }
-.pct-mid .pct-label, .pct-mid .pct-bar-fill { color: var(--amarillo); background: var(--amarillo); }
-.pct-bad .pct-label, .pct-bad .pct-bar-fill { color: var(--rojo); background: var(--rojo); }
+.pct-cell { text-align: center; font-variant-numeric: tabular-nums; min-width: 100px; }
+.pct-pill {
+  display: inline-block;
+  min-width: 64px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-align: center;
+}
+.pct-pill-ok { background: var(--verde-bg); color: var(--verde); }
+.pct-pill-mid { background: var(--amarillo-bg); color: var(--amarillo); }
+.pct-pill-bad { background: var(--rojo-bg); color: var(--rojo); }
 
 .hint { font-size: 0.82rem; color: var(--texto-suave); margin-top: 6px; line-height: 1.5; }
 
