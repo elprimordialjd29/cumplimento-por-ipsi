@@ -1393,7 +1393,7 @@ function renderStagingCard(entry) {
 
   const estadoMsg = sinPeriodo
     ? `⚠ No pude detectar el periodo de este archivo — selecciónalo para poder consolidarlo:`
-    : `${nErr === 0 ? "✔" : "⚠"} ${acta.municipio} — Contrato ${acta.contrato} — Acta ${acta.acta_no} — periodo detectado:`;
+    : `${nErr === 0 ? "✔" : "⚠"} Se cargó la ruta de ${acta.municipio} — periodo`;
 
   div.innerHTML = `
     <div class="toolbar">
@@ -1407,9 +1407,14 @@ function renderStagingCard(entry) {
       ${estadoMsg}
       <select class="select-inline periodo-override"></select>
       ${periodoDetectado ? '<span class="pill ok">detectado automático</span>' : ""}
-      ${!sinPeriodo ? `: ${checks.length} chequeos, ${nErr === 0 ? "todos OK" : `${nErr} con ERROR`}.` : ""}
     </div>
-    ${!sinPeriodo ? `<div class="table-wrap" style="margin-top:10px;">
+    ${!sinPeriodo ? `
+    <div class="hint" style="margin-top:8px;">
+      Contrato ${acta.contrato} · Acta ${acta.acta_no} ·
+      ${nErr === 0 ? `<span class="pill ok">${checks.length} chequeos OK</span>` : `<span class="pill error">${nErr} de ${checks.length} con error</span>`}
+      <button type="button" class="secondary btn-ver-detalle" style="margin-left:8px; padding:3px 10px;">Ver detalle</button>
+    </div>
+    <div class="table-wrap detalle-checks" style="margin-top:10px; display:${nErr > 0 ? "block" : "none"};">
       <table><thead><tr><th>Chequeo</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody>${filas}</tbody></table>
     </div>` : ""}`;
 
@@ -1423,6 +1428,15 @@ function renderStagingCard(entry) {
     recalcularEntry(entry);
     renderStagingXlsx();
   });
+  const btnDetalle = div.querySelector(".btn-ver-detalle");
+  if (btnDetalle) {
+    btnDetalle.addEventListener("click", () => {
+      const detalle = div.querySelector(".detalle-checks");
+      const abierto = detalle.style.display !== "none";
+      detalle.style.display = abierto ? "none" : "block";
+      btnDetalle.textContent = abierto ? "Ver detalle" : "Ocultar detalle";
+    });
+  }
 
   return div;
 }
