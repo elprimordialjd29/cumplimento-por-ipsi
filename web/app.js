@@ -253,11 +253,14 @@ function validar(acta) {
       diff <= tol,
       `Exigido-Descuento=${fmtMoney(exigido - descuento)} vs Reconocido=${fmtMoney(reconocido)} (dif=${fmtMoney(diff)})`
     );
-    if (exigido > 0) {
+    // Solo se reporta si de verdad hay un problema (para no llenar el
+    // historial de chequeos "OK" repetidos sin valor informativo).
+    if (exigido > 0 && reconocido > exigido + tol) {
+      const pct = (reconocido / exigido) * 100;
       add(
-        `% Cumplimiento no supera 100%: ${p.programa}`,
-        reconocido <= exigido + tol,
-        `Vr Reconocido=${fmtMoney(reconocido)} no puede superar Vr Exigido=${fmtMoney(exigido)} (${((reconocido / exigido) * 100).toFixed(1)}%)`
+        `Cumplimiento excede 100%: ${p.programa}`,
+        false,
+        `Vr Reconocido (${fmtMoney(reconocido)}) es mayor que Vr Exigido (${fmtMoney(exigido)}) → ${pct.toFixed(1)}%. Revisa esta fila en el acta original, seguramente hay un error de digitación.`
       );
     }
   });
@@ -389,16 +392,25 @@ function rebuildResumen() {
 
 // Agregado "caso extremo": todos los prestadores juntos, promediando cada
 // actividad a través de todos los municipios/contratos que la reporten.
+// Incluye montos totales y la lista de prestadores para que la vista no
+// quede reducida a un solo número por actividad.
 function rebuildResumenGeneral() {
   const porPrograma = {};
   const periodosPresentes = new Set();
   STATE.detalle.forEach((row) => {
     periodosPresentes.add(row.Periodo);
-    if (!porPrograma[row.Programa]) porPrograma[row.Programa] = {};
-    if (!porPrograma[row.Programa][row.Periodo]) porPrograma[row.Programa][row.Periodo] = [];
-    if (row.Pct_Cumplimiento !== null && row.Pct_Cumplimiento !== undefined) {
-      porPrograma[row.Programa][row.Periodo].push(row.Pct_Cumplimiento);
+    if (!porPrograma[row.Programa]) {
+      porPrograma[row.Programa] = { periodos: {}, exigido: 0, reconocido: 0, descuento: 0, prestadores: new Set() };
     }
+    const p = porPrograma[row.Programa];
+    if (!p.periodos[row.Periodo]) p.periodos[row.Periodo] = [];
+    if (row.Pct_Cumplimiento !== null && row.Pct_Cumplimiento !== undefined) {
+      p.periodos[row.Periodo].push(row.Pct_Cumplimiento);
+    }
+    p.exigido += Number(row.Vr_Exigido) || 0;
+    p.reconocido += Number(row.Vr_Reconocido) || 0;
+    p.descuento += Number(row.Descuento) || 0;
+    p.prestadores.add(row.Municipio);
   });
 
   const periodosOrdenados = PERIODO_ORDEN.filter((p) => periodosPresentes.has(p)).concat(
@@ -406,10 +418,18 @@ function rebuildResumenGeneral() {
   );
 
   const rows = Object.keys(porPrograma).sort().map((programa) => {
-    const row = { Programa: programa };
+    const p = porPrograma[programa];
+    const row = {
+      Programa: programa,
+      Vr_Exigido: p.exigido,
+      Vr_Reconocido: p.reconocido,
+      Descuento: p.descuento,
+      Prestadores: [...p.prestadores].sort().join(", "),
+      NumPrestadores: p.prestadores.size,
+    };
     const valoresPromedio = [];
     periodosOrdenados.forEach((per) => {
-      const arr = porPrograma[programa][per];
+      const arr = p.periodos[per];
       const avg = arr && arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
       row[per] = avg;
       if (avg !== null) valoresPromedio.push(avg);
@@ -484,6 +504,27 @@ function tablaResumenHtml(headerCols, filas) {
   return `<div class="table-wrap"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`;
 }
 
+// Tabla del consolidado general: además del % por periodo, muestra los
+// montos totales (Exigido/Reconocido/Descuento) y qué prestadores reportan
+// cada actividad, para que no sea solo un número suelto.
+function tablaResumenGeneralHtml(rows, periodos) {
+  const headerCols = ["Programa / Actividad", "Vr Exigido", "Vr Reconocido", "Descuento", ...periodos, "Promedio", "Prestadores que reportan"];
+  const thead = "<tr>" + headerCols.map((c) => `<th>${c}</th>`).join("") + "</tr>";
+  const body = rows
+    .map((r) => {
+      let tds = `<td>${r.Programa}</td>`;
+      tds += `<td style="text-align:right; font-variant-numeric:tabular-nums;">${fmtMoney(r.Vr_Exigido)}</td>`;
+      tds += `<td style="text-align:right; font-variant-numeric:tabular-nums;">${fmtMoney(r.Vr_Reconocido)}</td>`;
+      tds += `<td style="text-align:right; font-variant-numeric:tabular-nums;">${fmtMoney(r.Descuento)}</td>`;
+      periodos.forEach((p) => { tds += `<td class="pct-cell">${fmtPct(r[p])}</td>`; });
+      tds += `<td class="pct-cell" style="background:#f7f9ff;">${fmtPct(r.Promedio)}</td>`;
+      tds += `<td class="hint" style="white-space:normal; max-width:220px;">${r.Prestadores} <span class="pill ok">${r.NumPrestadores}</span></td>`;
+      return `<tr>${tds}</tr>`;
+    })
+    .join("");
+  return `<div class="table-wrap"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`;
+}
+
 function escapeXml(s) {
   return String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
 }
@@ -537,14 +578,12 @@ function cargarResumen() {
   // Vista principal: UN SOLO consolidado, sin importar el municipio — una
   // fila por actividad, promediando entre todos los prestadores y periodos.
   const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
-  const headerColsGeneral = ["Programa", ...periodosGeneral, "Promedio"];
-  const filasGeneral = rowsGeneral.map((r) => [r.Programa, ...periodosGeneral.map((p) => r[p]), r.Promedio]);
 
   let html = `<div class="resumen-grupo resumen-general">
     <h3>🌐 Consolidado general (todos los prestadores)</h3>
-    <p class="hint">Una fila por actividad — el % es el promedio entre todos los municipios/contratos que la reportan. No puede superar 100%.</p>
+    <p class="hint">Una fila por actividad — el % es el promedio entre todos los municipios/contratos que la reportan (nunca supera 100%). Los montos son la suma de todos los prestadores.</p>
     ${graficoBarrasSVG(rowsGeneral)}
-    ${tablaResumenHtml(headerColsGeneral, filasGeneral)}
+    ${tablaResumenGeneralHtml(rowsGeneral, periodosGeneral)}
   </div>`;
 
   // Detalle: desglose por prestador, para quien necesite ver el origen.
@@ -635,13 +674,6 @@ const VALIDACIONES_COLUMNAS = [
   { key: "Detalle", label: "Detalle" },
 ];
 
-function estadoTexto(pct) {
-  if (pct === null || pct === undefined) return "";
-  if (pct >= 0.999) return "✅ Cumple";
-  if (pct >= 0.9) return "⚠️ Parcial";
-  return "🔴 Incumple";
-}
-
 function aplicarFormatoNumero(ws, colIdx, numRows, formato) {
   for (let r = 1; r < numRows; r++) {
     const cell = ws[XLSX.utils.encode_cell({ r, c: colIdx })];
@@ -689,21 +721,28 @@ function descargarMaestro() {
   XLSX.utils.book_append_sheet(wb, wsVal, "Validaciones");
 
   // Resumen_General primero: es el consolidado principal (una fila por
-  // actividad, sin importar el municipio).
+  // actividad, sin importar el municipio), con montos totales y qué
+  // prestadores la reportan — no solo un porcentaje suelto.
   const { rows: rowsGeneral, periodos: periodosGeneral } = rebuildResumenGeneral();
-  const resGeneralHeaders = ["Programa / Actividad", ...periodosGeneral, "Promedio", "Estado"];
+  const resGeneralHeaders = ["Programa / Actividad", "Vr Exigido", "Vr Reconocido", "Descuento", ...periodosGeneral, "Promedio", "Nº Prestadores", "Prestadores"];
   const resGeneralAoa = [
     resGeneralHeaders,
-    ...rowsGeneral.map((r) => [r.Programa, ...periodosGeneral.map((p) => r[p] ?? null), r.Promedio ?? null, estadoTexto(r.Promedio)]),
+    ...rowsGeneral.map((r) => [
+      r.Programa, r.Vr_Exigido, r.Vr_Reconocido, r.Descuento,
+      ...periodosGeneral.map((p) => r[p] ?? null), r.Promedio ?? null, r.NumPrestadores, r.Prestadores,
+    ]),
   ];
-  const wsResGeneral = hojaConEstilo(resGeneralAoa, { columnasPorcentaje: periodosGeneral.map((_, i) => 1 + i).concat([1 + periodosGeneral.length]) });
+  const wsResGeneral = hojaConEstilo(resGeneralAoa, {
+    columnasMoneda: [1, 2, 3],
+    columnasPorcentaje: periodosGeneral.map((_, i) => 4 + i).concat([4 + periodosGeneral.length]),
+  });
   XLSX.utils.book_append_sheet(wb, wsResGeneral, "Resumen_General");
 
   const { rows, periodos } = rebuildResumen();
-  const resHeaders = ["Municipio", "Nº Contrato", "Programa / Actividad", ...periodos, "Promedio", "Estado"];
+  const resHeaders = ["Municipio", "Nº Contrato", "Programa / Actividad", ...periodos, "Promedio"];
   const resAoa = [
     resHeaders,
-    ...rows.map((r) => [r.Municipio, r.Contrato, r.Programa, ...periodos.map((p) => r[p] ?? null), r.Promedio ?? null, estadoTexto(r.Promedio)]),
+    ...rows.map((r) => [r.Municipio, r.Contrato, r.Programa, ...periodos.map((p) => r[p] ?? null), r.Promedio ?? null]),
   ];
   const wsRes = hojaConEstilo(resAoa, { columnasPorcentaje: periodos.map((_, i) => 3 + i).concat([3 + periodos.length]) });
   XLSX.utils.book_append_sheet(wb, wsRes, "Resumen_Detalle_Prestador");
